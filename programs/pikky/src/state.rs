@@ -384,3 +384,161 @@ impl TradingAgent {
 /// Per-user account tracking deposits, PnL, and strategy selection.
 /// PDA seeds: [b"user_account", trading_agent.key().as_ref(), owner.key().as_ref()]
 #[account]
+pub struct UserAccount {
+    /// Bump seed
+    pub bump: u8,
+    /// The trading agent this user belongs to
+    pub trading_agent: Pubkey,
+    /// The user's wallet
+    pub owner: Pubkey,
+    /// Current deposited balance (in token base units)
+    pub balance: u64,
+    /// Cumulative realized profit (can be negative via i64)
+    pub realized_pnl: i64,
+    /// Number of open positions
+    pub open_positions: u16,
+    /// Total number of trades ever made
+    pub total_trades: u32,
+    /// Number of winning trades
+    pub winning_trades: u32,
+    /// The user's selected MBTI strategy profile
+    pub mbti_profile: MbtiProfile,
+    /// Whether the user has configured a strategy
+    pub strategy_configured: bool,
+    /// Unix timestamp of account creation
+    pub created_at: i64,
+    /// Unix timestamp of last trade
+    pub last_trade_at: i64,
+    /// Total x402 payments made
+    pub total_x402_payments: u64,
+    /// Number of x402 payment records
+    pub x402_payment_count: u32,
+    /// Reserved space
+    pub _reserved: [u8; 64],
+}
+
+impl UserAccount {
+    pub const LEN: usize = 8  // discriminator
+        + 1   // bump
+        + 32  // trading_agent
+        + 32  // owner
+        + 8   // balance
+        + 8   // realized_pnl
+        + 2   // open_positions
+        + 4   // total_trades
+        + 4   // winning_trades
+        + MbtiProfile::LEN
+        + 1   // strategy_configured
+        + 8   // created_at
+        + 8   // last_trade_at
+        + 8   // total_x402_payments
+        + 4   // x402_payment_count
+        + 64; // reserved
+}
+
+/// Individual trade position account.
+/// PDA seeds: [b"position", user_account.key().as_ref(), &position_id.to_le_bytes()]
+#[account]
+pub struct TradePosition {
+    /// Bump seed
+    pub bump: u8,
+    /// The user account that owns this position
+    pub user_account: Pubkey,
+    /// Unique sequential position ID for this user
+    pub position_id: u64,
+    /// Token mint being traded (the base asset)
+    pub base_mint: Pubkey,
+    /// Trade direction
+    pub direction: TradeDirection,
+    /// Position size in base token units
+    pub size: u64,
+    /// Entry price (scaled by 1e6 for precision)
+    pub entry_price: u64,
+    /// Exit price when closed (scaled by 1e6)
+    pub exit_price: u64,
+    /// Leverage used (100 = 1x)
+    pub leverage: u16,
+    /// Stop-loss price (scaled by 1e6), 0 if not set
+    pub stop_loss: u64,
+    /// Take-profit price (scaled by 1e6), 0 if not set
+    pub take_profit: u64,
+    /// Realized PnL when closed (in quote token units)
+    pub pnl: i64,
+    /// Current status
+    pub status: PositionStatus,
+    /// MBTI type used when this trade was made
+    pub mbti_type: MbtiType,
+    /// AI confidence score at time of trade (0-100)
+    pub confidence_score: u8,
+    /// Unix timestamp of position open
+    pub opened_at: i64,
+    /// Unix timestamp of position close (0 if still open)
+    pub closed_at: i64,
+    /// Protocol fee charged on this trade (in quote units)
+    pub fee_paid: u64,
+    /// Reserved
+    pub _reserved: [u8; 32],
+}
+
+impl TradePosition {
+    pub const LEN: usize = 8  // discriminator
+        + 1   // bump
+        + 32  // user_account
+        + 8   // position_id
+        + 32  // base_mint
+        + 1   // direction
+        + 8   // size
+        + 8   // entry_price
+        + 8   // exit_price
+        + 2   // leverage
+        + 8   // stop_loss
+        + 8   // take_profit
+        + 8   // pnl
+        + 1   // status
+        + 1   // mbti_type
+        + 1   // confidence_score
+        + 8   // opened_at
+        + 8   // closed_at
+        + 8   // fee_paid
+        + 32; // reserved
+}
+
+/// x402 payment verification record.
+/// PDA seeds: [b"x402_payment", user_account.key().as_ref(), &payment_hash]
+#[account]
+pub struct X402PaymentRecord {
+    /// Bump seed
+    pub bump: u8,
+    /// The user account this payment belongs to
+    pub user_account: Pubkey,
+    /// Hash of the x402 payment proof (32 bytes)
+    pub payment_hash: [u8; 32],
+    /// Amount paid in quote token units
+    pub amount: u64,
+    /// Unix timestamp of payment
+    pub paid_at: i64,
+    /// Whether this payment has been consumed for a trade
+    pub consumed: bool,
+    /// The position ID this payment was used for (0 if not yet consumed)
+    pub consumed_by_position: u64,
+    /// Expiry timestamp for this payment authorization
+    pub expires_at: i64,
+    /// The x402 resource URI hash being paid for
+    pub resource_hash: [u8; 32],
+    /// Reserved
+    pub _reserved: [u8; 32],
+}
+
+impl X402PaymentRecord {
+    pub const LEN: usize = 8  // discriminator
+        + 1   // bump
+        + 32  // user_account
+        + 32  // payment_hash
+        + 8   // amount
+        + 8   // paid_at
+        + 1   // consumed
+        + 8   // consumed_by_position
+        + 8   // expires_at
+        + 32  // resource_hash
+        + 32; // reserved
+}
