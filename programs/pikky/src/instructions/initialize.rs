@@ -87,3 +87,77 @@ pub fn handler_initialize_agent(
 
 /// Initialize a user account under a trading agent.
 #[derive(Accounts)]
+pub struct InitializeUser<'info> {
+    #[account(
+        seeds = [TRADING_AGENT_SEED, trading_agent.authority.as_ref()],
+        bump = trading_agent.bump,
+    )]
+    pub trading_agent: Account<'info, TradingAgent>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = UserAccount::LEN,
+        seeds = [USER_ACCOUNT_SEED, trading_agent.key().as_ref(), owner.key().as_ref()],
+        bump,
+    )]
+    pub user_account: Account<'info, UserAccount>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn handler_initialize_user(ctx: Context<InitializeUser>) -> Result<()> {
+    let clock = Clock::get()?;
+    let user = &mut ctx.accounts.user_account;
+
+    user.bump = ctx.bumps.user_account;
+    user.trading_agent = ctx.accounts.trading_agent.key();
+    user.owner = ctx.accounts.owner.key();
+    user.balance = 0;
+    user.realized_pnl = 0;
+    user.open_positions = 0;
+    user.total_trades = 0;
+    user.winning_trades = 0;
+    user.mbti_profile = MbtiProfile::default_for(MbtiType::Istj); // conservative default
+    user.strategy_configured = false;
+    user.created_at = clock.unix_timestamp;
+    user.last_trade_at = 0;
+    user.total_x402_payments = 0;
+    user.x402_payment_count = 0;
+    user._reserved = [0u8; 64];
+
+    msg!(
+        "User account initialized for {} under agent {}",
+        user.owner,
+        user.trading_agent,
+    );
+
+    Ok(())
+}
+
+/// Pause or unpause the trading agent.
+#[derive(Accounts)]
+pub struct TogglePause<'info> {
+    #[account(
+        mut,
+        seeds = [TRADING_AGENT_SEED, trading_agent.authority.as_ref()],
+        bump = trading_agent.bump,
+        has_one = authority @ PikkyError::Unauthorized,
+    )]
+    pub trading_agent: Account<'info, TradingAgent>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn handler_toggle_pause(ctx: Context<TogglePause>) -> Result<()> {
+    let agent = &mut ctx.accounts.trading_agent;
+    agent.paused = !agent.paused;
+
+    let status = if agent.paused { "PAUSED" } else { "RESUMED" };
+    msg!("PIKKY Trading Agent {}", status);
+
+    Ok(())
+}
