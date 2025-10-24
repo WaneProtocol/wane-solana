@@ -134,3 +134,47 @@ pub fn handler_set_strategy(
 }
 
 /// Update the agent's fee configuration (authority only).
+#[derive(Accounts)]
+pub struct UpdateFees<'info> {
+    #[account(
+        mut,
+        seeds = [TRADING_AGENT_SEED, trading_agent.authority.as_ref()],
+        bump = trading_agent.bump,
+        has_one = authority @ PikkyError::Unauthorized,
+    )]
+    pub trading_agent: Account<'info, TradingAgent>,
+
+    pub authority: Signer<'info>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct UpdateFeesParams {
+    /// New fee in basis points
+    pub fee_bps: u16,
+    /// New fee receiver pubkey (pass Pubkey::default() to keep current)
+    pub new_fee_receiver: Option<Pubkey>,
+}
+
+pub fn handler_update_fees(
+    ctx: Context<UpdateFees>,
+    params: UpdateFeesParams,
+) -> Result<()> {
+    require!(params.fee_bps <= 500, PikkyError::InvalidFeeBps);
+
+    let agent = &mut ctx.accounts.trading_agent;
+    agent.fee_bps = params.fee_bps;
+
+    if let Some(new_receiver) = params.new_fee_receiver {
+        if new_receiver != Pubkey::default() {
+            agent.fee_receiver = new_receiver;
+        }
+    }
+
+    msg!(
+        "Agent fees updated: {} bps, receiver: {}",
+        agent.fee_bps,
+        agent.fee_receiver,
+    );
+
+    Ok(())
+}
