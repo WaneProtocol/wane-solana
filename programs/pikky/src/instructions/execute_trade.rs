@@ -261,3 +261,131 @@ pub fn handler_execute_trade(
 /// Close an existing position at the current market price.
 #[derive(Accounts)]
 pub struct ClosePosition<'info> {
+    #[account(
+        mut,
+        seeds = [TRADING_AGENT_SEED, trading_agent.authority.as_ref()],
+        bump = trading_agent.bump,
+    )]
+    pub trading_agent: Account<'info, TradingAgent>,
+
+    #[account(
+        mut,
+        seeds = [USER_ACCOUNT_SEED, trading_agent.key().as_ref(), owner.key().as_ref()],
+        bump = user_account.bump,
+        has_one = owner @ PikkyError::Unauthorized,
+        has_one = trading_agent,
+    )]
+    pub user_account: Account<'info, UserAccount>,
+
+    #[account(
+        mut,
+        seeds = [POSITION_SEED, user_account.key().as_ref(), &position.position_id.to_le_bytes()],
+        bump = position.bump,
+        constraint = position.user_account == user_account.key() @ PikkyError::Unauthorized,
+        constraint = position.status == PositionStatus::Open @ PikkyError::PositionAlreadyClosed,
+    )]
+    pub position: Account<'info, TradePosition>,
+
+    /// The agent's token vault.
+    #[account(
+        mut,
+        constraint = vault.key() == trading_agent.vault @ PikkyError::MintMismatch,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct ClosePositionParams {
+    /// Current exit price (scaled by 1e6)
+    pub exit_price: u64,
+    /// Price feed timestamp
+    pub price_timestamp: i64,
+    /// Close reason: 0 = manual, 1 = stop-loss, 2 = take-profit
+    pub close_reason: u8,
+}
+
+pub fn handler_close_position(
+    ctx: Context<ClosePosition>,
+    params: ClosePositionParams,
+) -> Result<()> {
+    let clock = Clock::get()?;
+
+    // Validate exit price
+    validate_price(params.exit_price, params.price_timestamp, clock.unix_timestamp)?;
+
+    let position = &ctx.accounts.position;
+
+    // Calculate PnL
+    let pnl = calculate_pnl(
+        position.size,
+        position.entry_price,
+        params.exit_price,
+        position.leverage,
+        position.direction,
+    )?;
+
+    // Determine close status
+    let close_status = match params.close_reason {
+        1 => PositionStatus::StopLossTriggered,
+        2 => PositionStatus::TakeProfitTriggered,
+        _ => PositionStatus::Closed,
+    };
+
+    // Calculate the amount to return to user balance
+    // Original size was deducted on open. Now return size + pnl (clamped to 0 minimum).
+    let return_amount = if pnl >= 0 {
+        position
+            .size
+            .checked_add(pnl as u64)
+            .ok_or(PikkyError::MathOverflow)?
+    } else {
+        let loss = (-pnl) as u64;
+        position.size.saturating_sub(loss)
+    };
+
+    // Update position
+    let position = &mut ctx.accounts.position;
+    position.exit_price = params.exit_price;
+    position.pnl = pnl;
+    position.status = close_status;
+    position.closed_at = clock.unix_timestamp;
+
+    // Update user account
+    let user = &mut ctx.accounts.user_account;
+    user.balance = user
+        .balance
+        .checked_add(return_amount)
+        .ok_or(PikkyError::MathOverflow)?;
+    user.realized_pnl = user
+        .realized_pnl
+        .checked_add(pnl)
+        .ok_or(PikkyError::MathOverflow)?;
+    user.open_positions = user.open_positions.saturating_sub(1);
+
+    if pnl > 0 {
+        user.winning_trades = user
+            .winning_trades
+            .checked_add(1)
+            .ok_or(PikkyError::MathOverflow)?;
+    }
+
+    // Update agent
+    let agent = &mut ctx.accounts.trading_agent;
+    agent.last_activity = clock.unix_timestamp;
+
+    msg!(
+        "Position #{} closed @ {}. PnL: {}, Status: {:?}. Returned {} to balance.",
+        position.position_id,
+        params.exit_price,
+        pnl,
+        close_status,
+        return_amount,
+    );
+
+    Ok(())
+}
