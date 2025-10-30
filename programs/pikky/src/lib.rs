@@ -77,3 +77,4 @@ pub mod pikky {
         instructions::set_strategy::handler_update_fees(ctx, params)
     }
 }
+
