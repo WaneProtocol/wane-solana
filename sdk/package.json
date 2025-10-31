@@ -1,0 +1,28 @@
+{
+  "name": "@pikky/sdk",
+  "version": "1.0.0",
+  "description": "PIKKY - x402-based Solana auto-trading AI agent SDK with MBTI strategies",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@solana/spl-token": "^0.3.9",
+    "@solana/web3.js": "^1.87.6",
+    "bs58": "^5.0.0",
+    "tweetnacl": "^1.0.3",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.2"
+  },
+  "keywords": ["solana", "x402", "trading", "mbti", "ai-agent"],
+  "license": "MIT"
+}
