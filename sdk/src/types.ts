@@ -121,3 +121,114 @@ export interface X402Payment {
   nonce: string;
   payload: string;
 }
+
+export interface X402PaymentHeader {
+  scheme: string;
+  token: string;
+  amount: string;
+  payer: string;
+  recipient: string;
+  signature: string;
+  nonce: string;
+  expiry: string;
+}
+
+export interface X402PaymentReceipt {
+  valid: boolean;
+  txSignature: TransactionSignature;
+  amount: number;
+  payer: string;
+  recipient: string;
+  confirmedAt: number;
+  blockSlot: number;
+}
+
+export interface PnLReport {
+  owner: PublicKey;
+  period: PnLPeriod;
+  totalPnl: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  winRate: number;
+  totalTrades: number;
+  avgTradeReturn: number;
+  bestTrade: number;
+  worstTrade: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  currentDrawdown: number;
+  positions: TradePosition[];
+  generatedAt: number;
+}
+
+export enum PnLPeriod {
+  HOUR = "1H",
+  DAY = "1D",
+  WEEK = "1W",
+  MONTH = "1M",
+  ALL = "ALL",
+}
+
+export interface PikkyConfig {
+  rpcEndpoint: string;
+  programId: PublicKey;
+  apiEndpoint: string;
+  x402RecipientAddress: string;
+  commitment?: "processed" | "confirmed" | "finalized";
+  maxRetries?: number;
+  retryDelayMs?: number;
+  timeoutMs?: number;
+}
+
+export interface DepositParams {
+  amount: number;
+  tokenMint?: PublicKey;
+}
+
+export interface WithdrawParams {
+  amount: number;
+  tokenMint?: PublicKey;
+}
+
+export interface TradeParams {
+  tokenMint: PublicKey;
+  direction: TradeDirection;
+  size: number;
+  leverage?: number;
+  orderType?: OrderType;
+  limitPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+}
+
+export interface StatusQuery {
+  includePositions?: boolean;
+  includePnl?: boolean;
+  pnlPeriod?: PnLPeriod;
+}
+
+export interface InstructionAccounts {
+  user: PublicKey;
+  userAccount: PublicKey;
+  systemProgram: PublicKey;
+  tokenProgram: PublicKey;
+  rent: PublicKey;
+  [key: string]: PublicKey;
+}
+
+export interface ProgramAddresses {
+  userAccount: PublicKey;
+  userAccountBump: number;
+  tradeVault: PublicKey;
+  tradeVaultBump: number;
+  protocolTreasury: PublicKey;
+  protocolTreasuryBump: number;
+}
+
+export const PIKKY_PROGRAM_ID = "PiKKYaGE7R9Bz5N3uqT2vJkF8mHdCeqLzAo1111111";
+export const LAMPORTS_PER_SOL = 1_000_000_000;
+export const X402_VERSION = "1.0";
+export const X402_SCHEME = "x402-sol";
+export const MAX_LEVERAGE = 20;
+export const MIN_TRADE_SIZE_SOL = 0.01;
+export const PROTOCOL_FEE_BPS = 30; // 0.3%
