@@ -409,3 +409,136 @@ export function getStrategy(mbtiType: MbtiType): TradingStrategy {
 export function getStrategyDescription(mbtiType: MbtiType): string {
   return getStrategy(mbtiType).description;
 }
+
+export function getRiskCategory(
+  mbtiType: MbtiType
+): "conservative" | "moderate" | "aggressive" | "degen" {
+  const tolerance = getStrategy(mbtiType).riskTolerance;
+  if (tolerance <= 0.3) return "conservative";
+  if (tolerance <= 0.55) return "moderate";
+  if (tolerance <= 0.75) return "aggressive";
+  return "degen";
+}
+
+export function calculatePositionSize(
+  strategy: TradingStrategy,
+  accountBalance: number,
+  confidence: number
+): number {
+  const baseSize = accountBalance * strategy.maxPositionSizePct;
+  const confidenceAdjusted = baseSize * Math.min(confidence, 1.0);
+  const riskAdjusted = confidenceAdjusted * strategy.riskTolerance;
+  return Math.max(riskAdjusted, 0);
+}
+
+export function shouldEnterTrade(
+  strategy: TradingStrategy,
+  signalStrength: number,
+  currentPositions: number
+): boolean {
+  if (currentPositions >= strategy.maxConcurrentPositions) {
+    return false;
+  }
+  return Math.abs(signalStrength) >= strategy.entryThreshold;
+}
+
+export function shouldExitTrade(
+  strategy: TradingStrategy,
+  unrealizedPnlPct: number,
+  holdingDurationMs: number
+): { shouldExit: boolean; reason: string } {
+  if (unrealizedPnlPct <= -strategy.stopLossPercentage) {
+    return { shouldExit: true, reason: "stop_loss_hit" };
+  }
+
+  if (unrealizedPnlPct >= strategy.takeProfitPercentage) {
+    return { shouldExit: true, reason: "take_profit_hit" };
+  }
+
+  if (holdingDurationMs >= strategy.maxHoldingPeriodMs) {
+    return { shouldExit: true, reason: "max_holding_period_exceeded" };
+  }
+
+  if (
+    strategy.trailingStopEnabled &&
+    unrealizedPnlPct > 0 &&
+    unrealizedPnlPct < strategy.trailingStopPercentage
+  ) {
+    return { shouldExit: true, reason: "trailing_stop_triggered" };
+  }
+
+  return { shouldExit: false, reason: "" };
+}
+
+export function selectLeverage(
+  strategy: TradingStrategy,
+  volatility: number,
+  confidence: number
+): number {
+  const baseMultiplier = confidence * (1 - volatility);
+  const leverageRange = strategy.maxLeverage - 1;
+  const calculatedLeverage = 1 + leverageRange * baseMultiplier;
+  return Math.min(
+    Math.max(Math.round(calculatedLeverage), 1),
+    strategy.maxLeverage
+  );
+}
+
+export function blendStrategies(
+  primary: MbtiType,
+  secondary: MbtiType,
+  primaryWeight: number = 0.7
+): TradingStrategy {
+  const p = getStrategy(primary);
+  const s = getStrategy(secondary);
+  const sw = 1 - primaryWeight;
+
+  return {
+    mbtiType: primary,
+    riskTolerance: p.riskTolerance * primaryWeight + s.riskTolerance * sw,
+    maxPositionSizePct:
+      p.maxPositionSizePct * primaryWeight + s.maxPositionSizePct * sw,
+    maxLeverage: Math.round(
+      p.maxLeverage * primaryWeight + s.maxLeverage * sw
+    ),
+    defaultLeverage: Math.round(
+      p.defaultLeverage * primaryWeight + s.defaultLeverage * sw
+    ),
+    entryThreshold:
+      p.entryThreshold * primaryWeight + s.entryThreshold * sw,
+    exitThreshold:
+      p.exitThreshold * primaryWeight + s.exitThreshold * sw,
+    stopLossPercentage:
+      p.stopLossPercentage * primaryWeight + s.stopLossPercentage * sw,
+    takeProfitPercentage:
+      p.takeProfitPercentage * primaryWeight + s.takeProfitPercentage * sw,
+    maxHoldingPeriodMs: Math.round(
+      p.maxHoldingPeriodMs * primaryWeight + s.maxHoldingPeriodMs * sw
+    ),
+    minHoldingPeriodMs: Math.round(
+      p.minHoldingPeriodMs * primaryWeight + s.minHoldingPeriodMs * sw
+    ),
+    maxConcurrentPositions: Math.round(
+      p.maxConcurrentPositions * primaryWeight +
+        s.maxConcurrentPositions * sw
+    ),
+    trailingStopEnabled: p.trailingStopEnabled || s.trailingStopEnabled,
+    trailingStopPercentage:
+      p.trailingStopPercentage * primaryWeight +
+      s.trailingStopPercentage * sw,
+    dcaEnabled: p.dcaEnabled || s.dcaEnabled,
+    dcaIntervalMs: Math.round(
+      p.dcaIntervalMs * primaryWeight + s.dcaIntervalMs * sw
+    ),
+    sentimentWeight:
+      p.sentimentWeight * primaryWeight + s.sentimentWeight * sw,
+    technicalWeight:
+      p.technicalWeight * primaryWeight + s.technicalWeight * sw,
+    fundamentalWeight:
+      p.fundamentalWeight * primaryWeight + s.fundamentalWeight * sw,
+    rebalanceIntervalMs: Math.round(
+      p.rebalanceIntervalMs * primaryWeight + s.rebalanceIntervalMs * sw
+    ),
+    description: `Blended strategy: ${primaryWeight * 100}% ${primary} / ${sw * 100}% ${secondary}`,
+  };
+}
