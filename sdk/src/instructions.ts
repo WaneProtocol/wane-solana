@@ -232,3 +232,166 @@ export async function buildInitializeInstruction(
     data,
   });
 }
+
+export async function buildDepositInstruction(
+  user: PublicKey,
+  amountLamports: bigint,
+  programId?: PublicKey
+): Promise<TransactionInstruction> {
+  const pid = programId ?? new PublicKey(PIKKY_PROGRAM_ID);
+  const [userAccount] = await deriveUserAccountPDA(user, pid);
+  const [tradeVault] = await deriveTradeVaultPDA(user, "main", pid);
+
+  const data = encodeInstructionData("deposit", {
+    amount: amountLamports,
+  });
+
+  return new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: userAccount, isSigner: false, isWritable: true },
+      { pubkey: tradeVault, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export async function buildWithdrawInstruction(
+  user: PublicKey,
+  amountLamports: bigint,
+  programId?: PublicKey
+): Promise<TransactionInstruction> {
+  const pid = programId ?? new PublicKey(PIKKY_PROGRAM_ID);
+  const [userAccount] = await deriveUserAccountPDA(user, pid);
+  const [tradeVault] = await deriveTradeVaultPDA(user, "main", pid);
+
+  const data = encodeInstructionData("withdraw", {
+    amount: amountLamports,
+  });
+
+  return new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: userAccount, isSigner: false, isWritable: true },
+      { pubkey: tradeVault, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export async function buildOpenTradeInstruction(
+  user: PublicKey,
+  tradeId: string,
+  tokenMint: PublicKey,
+  direction: TradeDirection,
+  sizeLamports: bigint,
+  leverage: number,
+  orderType: OrderType,
+  limitPrice: bigint | null,
+  stopLoss: bigint | null,
+  takeProfit: bigint | null,
+  programId?: PublicKey
+): Promise<TransactionInstruction> {
+  const pid = programId ?? new PublicKey(PIKKY_PROGRAM_ID);
+  const [userAccount] = await deriveUserAccountPDA(user, pid);
+  const [tradeVault] = await deriveTradeVaultPDA(user, tradeId, pid);
+  const [protocolTreasury] = await deriveProtocolTreasuryPDA(pid);
+  const mbtiType = MbtiType.INTJ; // fetched from account in real usage
+  const [mbtiStrategy] = await deriveMbtiStrategyPDA(mbtiType, pid);
+
+  const directionByte =
+    direction === TradeDirection.LONG ? 0 : 1;
+  const orderTypeByte =
+    orderType === OrderType.MARKET
+      ? 0
+      : orderType === OrderType.LIMIT
+        ? 1
+        : orderType === OrderType.STOP_LOSS
+          ? 2
+          : 3;
+
+  const data = encodeInstructionData("openTrade", {
+    tradeId,
+    direction: directionByte,
+    size: sizeLamports,
+    leverage,
+    orderType: orderTypeByte,
+    limitPrice,
+    stopLoss,
+    takeProfit,
+  });
+
+  return new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: userAccount, isSigner: false, isWritable: true },
+      { pubkey: tradeVault, isSigner: false, isWritable: true },
+      { pubkey: protocolTreasury, isSigner: false, isWritable: true },
+      { pubkey: tokenMint, isSigner: false, isWritable: false },
+      { pubkey: mbtiStrategy, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export async function buildCloseTradeInstruction(
+  user: PublicKey,
+  tradeId: string,
+  programId?: PublicKey
+): Promise<TransactionInstruction> {
+  const pid = programId ?? new PublicKey(PIKKY_PROGRAM_ID);
+  const [userAccount] = await deriveUserAccountPDA(user, pid);
+  const [tradeVault] = await deriveTradeVaultPDA(user, tradeId, pid);
+  const [protocolTreasury] = await deriveProtocolTreasuryPDA(pid);
+
+  const data = encodeInstructionData("closeTrade", {
+    tradeId,
+  });
+
+  return new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: userAccount, isSigner: false, isWritable: true },
+      { pubkey: tradeVault, isSigner: false, isWritable: true },
+      { pubkey: protocolTreasury, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export async function buildSetMbtiStrategyInstruction(
+  user: PublicKey,
+  mbtiType: MbtiType,
+  programId?: PublicKey
+): Promise<TransactionInstruction> {
+  const pid = programId ?? new PublicKey(PIKKY_PROGRAM_ID);
+  const [userAccount] = await deriveUserAccountPDA(user, pid);
+  const [mbtiStrategy] = await deriveMbtiStrategyPDA(mbtiType, pid);
+
+  const data = encodeInstructionData("setMbtiStrategy", {
+    mbtiType: mbtiType.toString(),
+  });
+
+  return new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: true },
+      { pubkey: userAccount, isSigner: false, isWritable: true },
+      { pubkey: mbtiStrategy, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export function getIDL() {
+  return PIKKY_IDL;
+}
