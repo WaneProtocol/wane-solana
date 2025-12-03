@@ -238,3 +238,155 @@ class TechnicalIndicators:
         return atr_val
 
     @staticmethod
+    def volume_sma(volumes: list[float], period: int) -> Optional[float]:
+        """Calculate volume simple moving average."""
+        if len(volumes) < period:
+            return None
+        return sum(volumes[-period:]) / period
+
+    @staticmethod
+    def volume_spike_ratio(volumes: list[float], period: int = 20) -> Optional[float]:
+        """
+        Calculate the ratio of current volume to its moving average.
+
+        Returns:
+            Ratio > 1 means volume is above average. None if insufficient data.
+        """
+        if len(volumes) < period + 1:
+            return None
+        avg = sum(volumes[-period - 1:-1]) / period
+        if avg == 0:
+            return None
+        return volumes[-1] / avg
+
+    @staticmethod
+    def momentum(prices: list[float], period: int = 10) -> Optional[float]:
+        """
+        Calculate price momentum (rate of change).
+
+        Returns:
+            Percentage change over the period.
+        """
+        if len(prices) < period + 1:
+            return None
+        old_price = prices[-period - 1]
+        if old_price == 0:
+            return None
+        return ((prices[-1] - old_price) / old_price) * 100
+
+    @staticmethod
+    def stochastic(
+        prices: list[float],
+        k_period: int = 14,
+        d_period: int = 3,
+    ) -> Optional[dict[str, float]]:
+        """
+        Calculate Stochastic Oscillator (%K and %D).
+
+        Args:
+            prices: Price history.
+            k_period: Lookback for %K.
+            d_period: Smoothing for %D.
+
+        Returns:
+            Dict with 'k' and 'd' values (0-100).
+        """
+        if len(prices) < k_period + d_period:
+            return None
+
+        k_values: list[float] = []
+        for i in range(k_period, len(prices) + 1):
+            window = prices[i - k_period:i]
+            high = max(window)
+            low = min(window)
+            if high == low:
+                k_values.append(50.0)
+            else:
+                k_values.append(((prices[i - 1] - low) / (high - low)) * 100)
+
+        if len(k_values) < d_period:
+            return None
+
+        d_val = sum(k_values[-d_period:]) / d_period
+        return {"k": k_values[-1], "d": d_val}
+
+    @staticmethod
+    def estimate_volatility(prices: list[float], period: int = 20) -> Optional[float]:
+        """
+        Estimate annualized volatility from price history.
+
+        Uses log returns and assumes ~365 periods per year (crypto).
+
+        Returns:
+            Annualized volatility as a decimal (e.g., 0.8 = 80%).
+        """
+        if len(prices) < period + 1:
+            return None
+
+        log_returns: list[float] = []
+        for i in range(len(prices) - period, len(prices)):
+            if prices[i - 1] > 0 and prices[i] > 0:
+                log_returns.append(math.log(prices[i] / prices[i - 1]))
+
+        if len(log_returns) < 2:
+            return None
+
+        mean_return = sum(log_returns) / len(log_returns)
+        variance = sum((r - mean_return) ** 2 for r in log_returns) / (len(log_returns) - 1)
+        daily_vol = math.sqrt(variance)
+
+        return daily_vol * math.sqrt(365)
+
+
+class BaseStrategy(ABC):
+    """
+    Abstract base class for MBTI trading strategies.
+
+    Subclasses implement the specific trading logic for each personality type.
+    The base class provides common technical analysis utilities, position sizing
+    formulas, and risk parameter management.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        mbti_type: str,
+        risk_tolerance: float = 0.5,
+        trade_frequency: str = "medium",
+        holding_period: str = "medium",
+        max_positions: int = 3,
+        base_position_pct: float = 0.05,
+    ) -> None:
+        """
+        Initialize the strategy.
+
+        Args:
+            name: Human-readable strategy name.
+            mbti_type: The MBTI type this strategy represents.
+            risk_tolerance: Risk tolerance from 0 (very conservative) to 1 (very aggressive).
+            trade_frequency: "low", "medium", or "high".
+            holding_period: "short", "medium", or "long".
+            max_positions: Maximum concurrent positions.
+            base_position_pct: Base position size as percentage of portfolio.
+        """
+        self.name = name
+        self.mbti_type = mbti_type
+        self.risk_tolerance = risk_tolerance
+        self.trade_frequency = trade_frequency
+        self.holding_period = holding_period
+        self.max_positions = max_positions
+        self.base_position_pct = base_position_pct
+        self.indicators = TechnicalIndicators()
+
+        self._trade_count: int = 0
+        self._signal_count: int = 0
+
+        logger.info(
+            "strategy_initialized",
+            name=name,
+            mbti=mbti_type,
+            risk=risk_tolerance,
+            frequency=trade_frequency,
+        )
+
+    @abstractmethod
