@@ -164,3 +164,98 @@ class EntpStrategy(BaseStrategy):
             )
 
         return analysis
+
+    def should_enter(self, analysis: dict[str, Any], market_data: Any) -> bool:
+        """
+        The Degen enters aggressively on contrarian and volatility setups.
+        Lower threshold than most strategies. Diversifies by opening many positions.
+        """
+        conviction = analysis.get("conviction", 0)
+        if conviction < self._min_conviction:
+            return False
+
+        mint = getattr(market_data, "mint", "")
+        now = time.time()
+        last_trade = self._last_trade_times.get(mint, 0)
+        if now - last_trade < self._min_trade_interval:
+            return False
+
+        is_contrarian = analysis.get("is_contrarian_setup", False)
+        is_vol_play = analysis.get("is_volatility_play", False)
+        degen_score = analysis.get("degen_score", 0)
+
+        should_enter = False
+
+        if is_contrarian and conviction > 0.5:
+            should_enter = True
+            logger.info("entp_contrarian_entry", conviction=conviction)
+
+        elif is_vol_play and conviction > 0.45:
+            should_enter = True
+            logger.info("entp_volatility_entry", conviction=conviction)
+
+        elif degen_score > 5.0 and conviction > 0.55:
+            should_enter = True
+            logger.info("entp_degen_score_entry", degen_score=degen_score)
+
+        elif conviction > 0.65:
+            should_enter = True
+
+        if should_enter:
+            self._last_trade_times[mint] = now
+            self._trade_count += 1
+
+        return should_enter
+
+    def should_exit(
+        self,
+        analysis: dict[str, Any],
+        market_data: Any,
+        position: Any,
+    ) -> bool:
+        """
+        The Degen has wide loss tolerance but takes quick profits.
+        Exits on mean reversion completion or momentum exhaustion.
+        """
+        pnl_pct = getattr(position, "unrealized_pnl_pct", 0)
+        hold_seconds = getattr(position, "holding_duration_seconds", 0)
+
+        if pnl_pct < self._max_loss_tolerance:
+            logger.info("entp_loss_exit", pnl_pct=pnl_pct)
+            return True
+
+        if pnl_pct > self._quick_profit_target:
+            rsi = analysis.get("rsi_14")
+            if rsi is not None and rsi > 70:
+                logger.info("entp_profit_take_overbought", pnl_pct=pnl_pct, rsi=rsi)
+                return True
+
+        if pnl_pct > self._quick_profit_target * 1.5:
+            return True
+
+        if analysis.get("is_contrarian_setup", False):
+            mean_rev = analysis.get("mean_reversion", {})
+            z_score = mean_rev.get("z_score")
+            if z_score is not None and z_score > 0 and pnl_pct > 3:
+                logger.info("entp_mean_reversion_complete", z_score=z_score, pnl_pct=pnl_pct)
+                return True
+
+        if hold_seconds > 1800 and pnl_pct < 1:
+            momentum = analysis.get("momentum_10")
+            if momentum is not None and momentum < -3:
+                return True
+
+        if hold_seconds > 5400 and abs(pnl_pct) < 3:
+            return True
+
+        return False
+
+    def get_risk_params(self) -> dict[str, Any]:
+        """The Degen uses wide stops and aggressive targets."""
+        return {
+            "stop_loss_pct": 0.12,
+            "take_profit_pct": 0.25,
+            "slippage_bps": 150,
+            "max_positions": self.max_positions,
+            "trailing_stop": True,
+        }
