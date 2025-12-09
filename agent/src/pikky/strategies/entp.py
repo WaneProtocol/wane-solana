@@ -259,3 +259,175 @@ class EntpStrategy(BaseStrategy):
             "max_positions": self.max_positions,
             "trailing_stop": True,
         }
+
+    def calculate_position_size(
+        self,
+        analysis: dict[str, Any],
+        portfolio_balance_sol: float,
+        current_exposure_sol: float,
+    ) -> float:
+        """
+        The Degen sizes aggressively on high-conviction setups.
+        Uses the degen score to amplify position sizes.
+        """
+        available = portfolio_balance_sol - current_exposure_sol
+        if available <= 0:
+            return 0.0
+
+        conviction = analysis.get("conviction", 0.5)
+        degen_normalized = analysis.get("degen_normalized", 0.5)
+
+        aggression = 0.5 + degen_normalized * 0.5
+
+        is_contrarian = analysis.get("is_contrarian_setup", False)
+        contrarian_bonus = 1.0 + (self._contrarian_bonus if is_contrarian else 0.0)
+
+        size = (
+            self.base_position_pct
+            * portfolio_balance_sol
+            * conviction
+            * aggression
+            * contrarian_bonus
+        )
+
+        max_allowed = available * 0.35
+        size = min(size, max_allowed)
+
+        return round(max(size, 0.0), 4)
+
+    def _detect_mean_reversion(
+        self,
+        prices: list[float],
+        indicators: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Detect mean reversion opportunities.
+
+        Computes z-score of current price relative to its moving average
+        and checks for oversold/overbought conditions.
+        """
+        result: dict[str, Any] = {
+            "z_score": None,
+            "is_oversold": False,
+            "is_overbought": False,
+            "distance_from_mean_pct": 0.0,
+        }
+
+        bb = indicators.get("bollinger")
+        if bb is None:
+            return result
+
+        current = indicators["price_current"]
+        middle = bb["middle"]
+        std_dev = bb["std_dev"]
+
+        if std_dev > 0:
+            z_score = (current - middle) / std_dev
+            result["z_score"] = z_score
+            result["is_oversold"] = z_score < -self._mean_reversion_threshold
+            result["is_overbought"] = z_score > self._mean_reversion_threshold
+
+        if middle > 0:
+            result["distance_from_mean_pct"] = ((current - middle) / middle) * 100
+
+        return result
+
+    def _detect_volatility_breakout(
+        self,
+        prices: list[float],
+        indicators: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Detect volatility breakouts and Bollinger Band squeezes.
+
+        A squeeze occurs when bandwidth contracts below a threshold,
+        followed by a breakout when price moves beyond the bands.
+        """
+        result: dict[str, Any] = {
+            "breakout_up": False,
+            "breakout_down": False,
+            "squeeze_release": False,
+            "bandwidth": 0.0,
+            "squeeze_detected": False,
+        }
+
+        bb = indicators.get("bollinger")
+        if bb is None:
+            return result
+
+        current = indicators["price_current"]
+        result["bandwidth"] = bb["bandwidth"]
+
+        squeeze_threshold = 0.04
+        result["squeeze_detected"] = bb["bandwidth"] < squeeze_threshold
+
+        if current > bb["upper"]:
+            breakout_strength = (current - bb["upper"]) / bb["std_dev"] if bb["std_dev"] > 0 else 0
+            if breakout_strength > self._volatility_breakout_threshold:
+                result["breakout_up"] = True
+
+        if current < bb["lower"]:
+            breakdown_strength = (bb["lower"] - current) / bb["std_dev"] if bb["std_dev"] > 0 else 0
+            if breakdown_strength > self._volatility_breakout_threshold:
+                result["breakout_down"] = True
+
+        if len(prices) >= 25:
+            old_prices = prices[-25:-5]
+            if len(old_prices) >= 20:
+                old_bb = self.indicators.bollinger_bands(old_prices, 20, 2.0)
+                if old_bb and old_bb["bandwidth"] < squeeze_threshold and bb["bandwidth"] > squeeze_threshold * 2:
+                    result["squeeze_release"] = True
+
+        return result
+
+    def _detect_momentum_divergence(
+        self,
+        prices: list[float],
+        indicators: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Detect bullish and bearish momentum divergence.
+
+        Bullish divergence: price making lower lows but RSI making higher lows.
+        Bearish divergence: price making higher highs but RSI making lower highs.
+        """
+        result: dict[str, Any] = {
+            "bullish_divergence": False,
+            "bearish_divergence": False,
+        }
+
+        if len(prices) < 30:
+            return result
+
+        rsi_values: list[float] = []
+        for i in range(20, len(prices) + 1, 5):
+            rsi_val = self.indicators.rsi(prices[:i], 14)
+            if rsi_val is not None:
+                rsi_values.append(rsi_val)
+
+        if len(rsi_values) < 3:
+            return result
+
+        recent_prices = prices[-15:]
+        older_prices = prices[-30:-15]
+
+        if not recent_prices or not older_prices:
+            return result
+
+        recent_low = min(recent_prices)
+        older_low = min(older_prices)
+        recent_rsi_low = min(rsi_values[-2:])
+        older_rsi_low = min(rsi_values[:-2]) if len(rsi_values) > 2 else rsi_values[0]
+
+        if recent_low < older_low and recent_rsi_low > older_rsi_low:
+            result["bullish_divergence"] = True
+
+        recent_high = max(recent_prices)
+        older_high = max(older_prices)
+        recent_rsi_high = max(rsi_values[-2:])
+        older_rsi_high = max(rsi_values[:-2]) if len(rsi_values) > 2 else rsi_values[0]
+
+        if recent_high > older_high and recent_rsi_high < older_rsi_high:
+            result["bearish_divergence"] = True
+
+        return result
