@@ -138,3 +138,381 @@ class MarketData:
     prices_history: list[float] = field(default_factory=list)
     volumes_history: list[float] = field(default_factory=list)
 
+
+class TradingEngine:
+    """
+    Core trading engine for PIKKY.
+
+    Orchestrates the entire trading workflow:
+    - Manages x402 payment sessions
+    - Loads MBTI-based trading strategies
+    - Scans markets for opportunities
+    - Executes trades through TradeExecutor
+    - Manages open positions with risk controls
+    - Reports PnL periodically
+    """
+
+    def __init__(self, config: PikkyConfig) -> None:
+        """
+        Initialize the trading engine.
+
+        Args:
+            config: Complete PIKKY configuration.
+        """
+        self._config = config
+        self._state = EngineState.IDLE
+        self._solana = SolanaClient(
+            rpc_url=config.rpc_url,
+            ws_url=config.get_ws_url(),
+        )
+        self._executor = TradeExecutor(
+            solana_client=self._solana,
+            jupiter_config=config.jupiter,
+            risk_config=config.risk,
+            paper_trading=config.enable_paper_trading,
+        )
+        self._x402 = X402PaymentHandler(
+            recipient_address="",
+            solana_client=self._solana,
+            base_fee_lamports=config.fees.x402_base_fee_lamports,
+            session_duration_seconds=config.fees.x402_session_duration_seconds,
+            refund_window_seconds=config.fees.refund_window_seconds,
+        )
+        self._strategy_registry = StrategyRegistry()
+
+        self._positions: dict[str, Position] = {}
+        self._closed_positions: list[Position] = []
+        self._market_data: dict[str, MarketData] = {}
+        self._session_strategies: dict[str, Any] = {}
+
+        self._starting_balance_sol: float = 0.0
+        self._current_balance_sol: float = 0.0
+        self._realized_pnl_sol: float = 0.0
+        self._peak_balance_sol: float = 0.0
+        self._max_drawdown_pct: float = 0.0
+        self._daily_start_balance: float = 0.0
+        self._daily_start_time: float = 0.0
+        self._win_count: int = 0
+        self._loss_count: int = 0
+
+        self._main_loop_task: Optional[asyncio.Task] = None
+        self._market_scan_task: Optional[asyncio.Task] = None
+        self._pnl_report_task: Optional[asyncio.Task] = None
+        self._position_monitor_task: Optional[asyncio.Task] = None
+
+        logger.info(
+            "trading_engine_initialized",
+            network=config.network.value,
+            paper_trading=config.enable_paper_trading,
+        )
+
+    @property
+    def state(self) -> EngineState:
+        """Get current engine state."""
+        return self._state
+
+    @property
+    def positions(self) -> dict[str, Position]:
+        """Get open positions."""
+        return self._positions.copy()
+
+    async def start(self) -> None:
+        """Start the trading engine and all subsystems."""
+        if self._state == EngineState.RUNNING:
+            logger.warning("engine_already_running")
+            return
+
+        self._state = EngineState.STARTING
+        logger.info("engine_starting")
+
+        try:
+            await self._solana.connect()
+            await self._executor.start()
+            await self._x402.start()
+
+            balance = await self._solana.get_sol_balance()
+            self._starting_balance_sol = balance
+            self._current_balance_sol = balance
+            self._peak_balance_sol = balance
+            self._daily_start_balance = balance
+            self._daily_start_time = time.time()
+
+            wallet_pubkey = await self._solana.get_wallet_pubkey()
+            self._x402._recipient = str(wallet_pubkey)
+
+            self._main_loop_task = asyncio.create_task(self._main_loop())
+            self._market_scan_task = asyncio.create_task(self._market_scan_loop())
+            self._pnl_report_task = asyncio.create_task(self._pnl_report_loop())
+            self._position_monitor_task = asyncio.create_task(self._position_monitor_loop())
+
+            self._state = EngineState.RUNNING
+            logger.info(
+                "engine_started",
+                balance_sol=balance,
+                wallet=str(wallet_pubkey),
+            )
+
+        except Exception as exc:
+            self._state = EngineState.ERROR
+            logger.error("engine_start_failed", error=str(exc))
+            raise
+
+    async def stop(self) -> None:
+        """Stop the trading engine gracefully."""
+        if self._state not in (EngineState.RUNNING, EngineState.ERROR):
+            return
+
+        self._state = EngineState.STOPPING
+        logger.info("engine_stopping")
+
+        tasks = [
+            self._main_loop_task,
+            self._market_scan_task,
+            self._pnl_report_task,
+            self._position_monitor_task,
+        ]
+        for task in tasks:
+            if task and not task.done():
+                task.cancel()
+
+        for task in tasks:
+            if task:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+        await self._x402.stop()
+        await self._executor.stop()
+        await self._solana.disconnect()
+
+        self._state = EngineState.STOPPED
+        logger.info(
+            "engine_stopped",
+            realized_pnl=self._realized_pnl_sol,
+            total_trades=self._win_count + self._loss_count,
+        )
+
+    async def activate_session(
+        self,
+        session: PaymentSession,
+    ) -> None:
+        """
+        Activate a trading session with the appropriate MBTI strategy.
+
+        Args:
+            session: A verified payment session.
+        """
+        mbti_type = MbtiType(session.mbti_type)
+        strategy = self._strategy_registry.get_strategy(mbti_type)
+
+        if strategy is None:
+            logger.error("no_strategy_for_type", mbti_type=session.mbti_type)
+            return
+
+        self._session_strategies[session.session_id] = strategy
+
+        logger.info(
+            "session_activated",
+            session_id=session.session_id,
+            mbti_type=session.mbti_type,
+            strategy=strategy.__class__.__name__,
+            expires_in=session.remaining_seconds(),
+        )
+
+    async def process_session_tick(self, session: PaymentSession) -> None:
+        """
+        Process one tick of trading logic for a session.
+
+        Runs the MBTI strategy analysis and executes any signals.
+        """
+        strategy = self._session_strategies.get(session.session_id)
+        if strategy is None:
+            return
+
+        if not session.is_active():
+            await self._close_session_positions(session.session_id)
+            return
+
+        num_positions = sum(
+            1 for p in self._positions.values()
+            if p.session_id == session.session_id
+        )
+        if num_positions >= self._config.risk.max_concurrent_positions:
+            return
+
+        total_exposure = sum(p.amount_sol_in for p in self._positions.values())
+        max_exposure = self._current_balance_sol * self._config.risk.max_portfolio_exposure_pct
+        if total_exposure >= max_exposure:
+            return
+
+        daily_pnl = self._get_daily_pnl()
+        if daily_pnl < -(self._daily_start_balance * self._config.risk.max_daily_loss_pct):
+            logger.warning(
+                "daily_loss_limit_hit",
+                daily_pnl=daily_pnl,
+                limit=self._config.risk.max_daily_loss_pct,
+            )
+            return
+
+        for mint, market in self._market_data.items():
+            if market.liquidity_usd < self._config.risk.min_liquidity_usd:
+                continue
+
+            already_holding = any(
+                p.token_mint == mint and p.session_id == session.session_id
+                for p in self._positions.values()
+            )
+
+            analysis = strategy.analyze(market)
+
+            if not already_holding and strategy.should_enter(analysis, market):
+                position_size_sol = strategy.calculate_position_size(
+                    analysis=analysis,
+                    portfolio_balance_sol=self._current_balance_sol,
+                    current_exposure_sol=total_exposure,
+                )
+
+                max_trade_size = (
+                    self._current_balance_sol
+                    * self._config.risk.max_single_trade_loss_pct
+                    / 0.1
+                )
+                position_size_sol = min(position_size_sol, max_trade_size)
+                position_size_sol = min(
+                    position_size_sol, self._config.risk.max_position_size_sol
+                )
+
+                if position_size_sol >= 0.01:
+                    await self._open_position(
+                        session=session,
+                        token_mint=mint,
+                        token_symbol=market.symbol,
+                        sol_amount=position_size_sol,
+                        strategy=strategy,
+                        analysis=analysis,
+                        current_price=market.price_usd,
+                    )
+
+    async def _open_position(
+        self,
+        session: PaymentSession,
+        token_mint: str,
+        token_symbol: str,
+        sol_amount: float,
+        strategy: Any,
+        analysis: dict,
+        current_price: float,
+    ) -> Optional[Position]:
+        """Open a new position by executing a buy trade."""
+        risk_params = strategy.get_risk_params()
+
+        result = await self._executor.execute_buy(
+            session_id=session.session_id,
+            token_mint=token_mint,
+            sol_amount=sol_amount,
+            slippage_bps=risk_params.get("slippage_bps", self._config.risk.default_slippage_bps),
+        )
+
+        if not result.success:
+            logger.warning(
+                "position_open_failed",
+                token=token_symbol,
+                error=result.error,
+            )
+            return None
+
+        stop_loss_pct = risk_params.get("stop_loss_pct", 0.10)
+        take_profit_pct = risk_params.get("take_profit_pct", 0.30)
+
+        position_id = f"pos_{session.session_id[:8]}_{token_symbol}_{int(time.time())}"
+        position = Position(
+            position_id=position_id,
+            session_id=session.session_id,
+            token_mint=token_mint,
+            token_symbol=token_symbol,
+            side=PositionSide.LONG,
+            entry_price=current_price,
+            current_price=current_price,
+            amount_tokens=result.amount_out,
+            amount_sol_in=sol_amount,
+            entry_time=time.time(),
+            mbti_type=session.mbti_type,
+            stop_loss_price=current_price * (1 - stop_loss_pct),
+            take_profit_price=current_price * (1 + take_profit_pct),
+        )
+
+        self._positions[position_id] = position
+        session.record_trade(0)
+
+        logger.info(
+            "position_opened",
+            position_id=position_id,
+            token=token_symbol,
+            sol_amount=sol_amount,
+            entry_price=current_price,
+            stop_loss=position.stop_loss_price,
+            take_profit=position.take_profit_price,
+            mbti=session.mbti_type,
+        )
+
+        return position
+
+    async def _close_position(
+        self,
+        position: Position,
+        reason: str = "strategy_signal",
+    ) -> Optional[TradeResult]:
+        """Close a position by executing a sell trade."""
+        result = await self._executor.execute_sell(
+            session_id=position.session_id,
+            token_mint=position.token_mint,
+            token_amount=position.amount_tokens,
+        )
+
+        if not result.success:
+            logger.warning(
+                "position_close_failed",
+                position_id=position.position_id,
+                error=result.error,
+            )
+            return None
+
+        sol_out = result.amount_out / 1_000_000_000
+        pnl_sol = sol_out - position.amount_sol_in
+        self._realized_pnl_sol += pnl_sol
+
+        if pnl_sol >= 0:
+            self._win_count += 1
+        else:
+            self._loss_count += 1
+
+        session = self._x402.get_session(position.session_id)
+        if session:
+            session.record_trade(int(pnl_sol * 1_000_000_000))
+
+        del self._positions[position.position_id]
+        self._closed_positions.append(position)
+
+        logger.info(
+            "position_closed",
+            position_id=position.position_id,
+            token=position.token_symbol,
+            pnl_sol=pnl_sol,
+            pnl_pct=position.unrealized_pnl_pct,
+            reason=reason,
+            hold_duration=position.holding_duration_seconds,
+        )
+
+        return result
+
+    async def _close_session_positions(self, session_id: str) -> None:
+        """Close all positions for an expired session."""
+        positions_to_close = [
+            p for p in self._positions.values() if p.session_id == session_id
+        ]
+        for position in positions_to_close:
+            await self._close_position(position, reason="session_expired")
+
+        if session_id in self._session_strategies:
+            del self._session_strategies[session_id]
