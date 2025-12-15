@@ -132,3 +132,351 @@ class X402PaymentHandler:
     4. Client retries request with payment proof (tx signature)
     5. Server verifies payment on-chain and activates session
     """
+
+    def __init__(
+        self,
+        recipient_address: str,
+        solana_client: object,
+        base_fee_lamports: int = 5_000_000,
+        session_duration_seconds: int = 3600,
+        challenge_ttl_seconds: int = 300,
+        refund_window_seconds: int = 300,
+        hmac_secret: Optional[bytes] = None,
+    ) -> None:
+        """
+        Initialize the x402 payment handler.
+
+        Args:
+            recipient_address: Solana address to receive payments.
+            solana_client: SolanaClient instance for on-chain verification.
+            base_fee_lamports: Base fee in lamports.
+            session_duration_seconds: How long a paid session lasts.
+            challenge_ttl_seconds: How long a payment challenge is valid.
+            refund_window_seconds: Window after payment for refund eligibility.
+            hmac_secret: Secret for signing challenge IDs. Generated if not provided.
+        """
+        self._recipient = recipient_address
+        self._solana = solana_client
+        self._base_fee = base_fee_lamports
+        self._session_duration = session_duration_seconds
+        self._challenge_ttl = challenge_ttl_seconds
+        self._refund_window = refund_window_seconds
+        self._hmac_secret = hmac_secret or secrets.token_bytes(32)
+
+        self._pending_challenges: dict[str, PaymentChallenge] = {}
+        self._active_sessions: dict[str, PaymentSession] = {}
+        self._sessions_by_address: dict[str, list[str]] = {}
+        self._refund_records: dict[str, RefundRecord] = {}
+        self._verified_signatures: set[str] = set()
+
+        self._lock = asyncio.Lock()
+        self._cleanup_task: Optional[asyncio.Task] = None
+
+        logger.info(
+            "x402_handler_initialized",
+            recipient=recipient_address,
+            base_fee=base_fee_lamports,
+            session_duration=session_duration_seconds,
+        )
+
+    async def start(self) -> None:
+        """Start the background cleanup task."""
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        logger.info("x402_cleanup_task_started")
+
+    async def stop(self) -> None:
+        """Stop the background cleanup task."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("x402_handler_stopped")
+
+    def generate_challenge(
+        self,
+        mbti_type: str,
+        fee_multiplier: float = 1.0,
+        client_address: Optional[str] = None,
+    ) -> PaymentChallenge:
+        """
+        Generate a new x402 payment challenge.
+
+        Args:
+            mbti_type: The MBTI type the user wants to trade with.
+            fee_multiplier: Multiplier applied to base fee for this MBTI type.
+            client_address: Optional client wallet address for targeted challenge.
+
+        Returns:
+            A PaymentChallenge with all details needed for the client to pay.
+        """
+        now = time.time()
+        challenge_id = self._generate_challenge_id(mbti_type, now)
+        amount = int(self._base_fee * fee_multiplier)
+        memo = f"pikky:{challenge_id}:{mbti_type}"
+
+        challenge = PaymentChallenge(
+            challenge_id=challenge_id,
+            recipient_address=self._recipient,
+            amount_lamports=amount,
+            memo=memo,
+            created_at=now,
+            expires_at=now + self._challenge_ttl,
+            mbti_type=mbti_type,
+            client_address=client_address,
+        )
+
+        self._pending_challenges[challenge_id] = challenge
+
+        logger.info(
+            "x402_challenge_generated",
+            challenge_id=challenge_id,
+            amount_lamports=amount,
+            mbti_type=mbti_type,
+            expires_in=self._challenge_ttl,
+        )
+
+        return challenge
+
+    async def verify_payment(
+        self,
+        challenge_id: str,
+        tx_signature: str,
+        client_address: str,
+    ) -> PaymentSession:
+        """
+        Verify an on-chain payment against a challenge and activate a session.
+
+        Args:
+            challenge_id: The challenge ID from the original 402 response.
+            tx_signature: The Solana transaction signature of the payment.
+            client_address: The wallet address that sent the payment.
+
+        Returns:
+            An activated PaymentSession.
+
+        Raises:
+            PaymentVerificationError: If verification fails.
+        """
+        async with self._lock:
+            challenge = self._pending_challenges.get(challenge_id)
+            if challenge is None:
+                raise PaymentVerificationError(
+                    f"Challenge not found: {challenge_id}",
+                    code="CHALLENGE_NOT_FOUND",
+                )
+
+            if challenge.is_expired():
+                del self._pending_challenges[challenge_id]
+                raise PaymentVerificationError(
+                    f"Challenge expired: {challenge_id}",
+                    code="CHALLENGE_EXPIRED",
+                )
+
+            if challenge.client_address and challenge.client_address != client_address:
+                raise PaymentVerificationError(
+                    "Client address mismatch",
+                    code="ADDRESS_MISMATCH",
+                )
+
+            if tx_signature in self._verified_signatures:
+                raise PaymentVerificationError(
+                    "Transaction signature already used",
+                    code="DUPLICATE_SIGNATURE",
+                )
+
+            tx_valid = await self._verify_transaction_on_chain(
+                tx_signature=tx_signature,
+                expected_recipient=self._recipient,
+                expected_amount=challenge.amount_lamports,
+                expected_memo=challenge.memo,
+                expected_sender=client_address,
+            )
+
+            if not tx_valid:
+                raise PaymentVerificationError(
+                    "On-chain transaction verification failed",
+                    code="TX_VERIFICATION_FAILED",
+                )
+
+            self._verified_signatures.add(tx_signature)
+            del self._pending_challenges[challenge_id]
+
+            now = time.time()
+            session_id = self._generate_session_id(challenge_id, tx_signature)
+            session = PaymentSession(
+                session_id=session_id,
+                challenge_id=challenge_id,
+                client_address=client_address,
+                tx_signature=tx_signature,
+                amount_lamports=challenge.amount_lamports,
+                mbti_type=challenge.mbti_type,
+                activated_at=now,
+                expires_at=now + self._session_duration,
+            )
+
+            self._active_sessions[session_id] = session
+            if client_address not in self._sessions_by_address:
+                self._sessions_by_address[client_address] = []
+            self._sessions_by_address[client_address].append(session_id)
+
+            logger.info(
+                "x402_payment_verified",
+                session_id=session_id,
+                challenge_id=challenge_id,
+                tx_signature=tx_signature,
+                client=client_address,
+                mbti_type=challenge.mbti_type,
+                expires_at=session.expires_at,
+            )
+
+            return session
+
+    def get_session(self, session_id: str) -> Optional[PaymentSession]:
+        """Get an active session by ID."""
+        session = self._active_sessions.get(session_id)
+        if session and not session.is_active():
+            session.status = PaymentStatus.EXPIRED
+            return None
+        return session
+
+    def get_active_session_for_address(self, client_address: str) -> Optional[PaymentSession]:
+        """Get the most recent active session for a wallet address."""
+        session_ids = self._sessions_by_address.get(client_address, [])
+        for sid in reversed(session_ids):
+            session = self._active_sessions.get(sid)
+            if session and session.is_active():
+                return session
+        return None
+
+    def get_all_active_sessions(self) -> list[PaymentSession]:
+        """Get all currently active sessions."""
+        active = []
+        for session in self._active_sessions.values():
+            if session.is_active():
+                active.append(session)
+            elif session.status == PaymentStatus.CONFIRMED:
+                session.status = PaymentStatus.EXPIRED
+        return active
+
+    async def process_refund(
+        self,
+        session_id: str,
+        reason: str = "user_requested",
+    ) -> RefundRecord:
+        """
+        Process a refund for a payment session.
+
+        Only sessions within the refund window and with zero trades
+        executed are eligible for refund.
+
+        Args:
+            session_id: The session to refund.
+            reason: Reason for the refund.
+
+        Returns:
+            A RefundRecord with the refund transaction details.
+
+        Raises:
+            RefundError: If the session is not eligible for refund.
+        """
+        async with self._lock:
+            session = self._active_sessions.get(session_id)
+            if session is None:
+                raise RefundError(f"Session not found: {session_id}")
+
+            if session.status == PaymentStatus.REFUNDED:
+                raise RefundError(f"Session already refunded: {session_id}")
+
+            elapsed = time.time() - session.activated_at
+            if elapsed > self._refund_window:
+                raise RefundError(
+                    f"Refund window expired. Elapsed: {elapsed:.0f}s, "
+                    f"window: {self._refund_window}s"
+                )
+
+            if session.trades_executed > 0:
+                raise RefundError(
+                    f"Cannot refund session with {session.trades_executed} trades executed"
+                )
+
+            refund_amount = session.amount_lamports
+            refund_tx = await self._execute_refund_transfer(
+                recipient=session.client_address,
+                amount_lamports=refund_amount,
+            )
+
+            refund_id = f"refund_{session_id}_{int(time.time())}"
+            record = RefundRecord(
+                refund_id=refund_id,
+                session_id=session_id,
+                original_tx=session.tx_signature,
+                refund_tx=refund_tx,
+                amount_lamports=refund_amount,
+                reason=reason,
+                created_at=time.time(),
+            )
+
+            session.status = PaymentStatus.REFUNDED
+            self._refund_records[refund_id] = record
+
+            logger.info(
+                "x402_refund_processed",
+                refund_id=refund_id,
+                session_id=session_id,
+                amount=refund_amount,
+                refund_tx=refund_tx,
+            )
+
+            return record
+
+    def validate_session_header(self, authorization: str) -> Optional[PaymentSession]:
+        """
+        Validate an x402 Authorization header and return the session.
+
+        Expected format: X402 session="<session_id>", signature="<sig>"
+
+        Args:
+            authorization: The Authorization header value.
+
+        Returns:
+            The active PaymentSession if valid, None otherwise.
+        """
+        if not authorization.startswith("X402 "):
+            return None
+
+        params = self._parse_header_params(authorization[5:])
+        session_id = params.get("session")
+        if not session_id:
+            return None
+
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+
+        sig = params.get("signature")
+        if sig:
+            expected_sig = self._sign_session_id(session_id)
+            if not hmac.compare_digest(sig, expected_sig):
+                logger.warning("x402_invalid_session_signature", session_id=session_id)
+                return None
+
+        return session
+
+    def get_stats(self) -> dict:
+        """Get handler statistics."""
+        active_sessions = self.get_all_active_sessions()
+        total_revenue = sum(s.amount_lamports for s in self._active_sessions.values())
+        total_refunded = sum(r.amount_lamports for r in self._refund_records.values())
+
+        return {
+            "pending_challenges": len(self._pending_challenges),
+            "active_sessions": len(active_sessions),
+            "total_sessions": len(self._active_sessions),
+            "total_refunds": len(self._refund_records),
+            "total_revenue_lamports": total_revenue,
+            "total_refunded_lamports": total_refunded,
+            "net_revenue_lamports": total_revenue - total_refunded,
+            "verified_signatures": len(self._verified_signatures),
+        }
