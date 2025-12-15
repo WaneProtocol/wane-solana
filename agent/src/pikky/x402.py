@@ -480,3 +480,194 @@ class X402PaymentHandler:
             "net_revenue_lamports": total_revenue - total_refunded,
             "verified_signatures": len(self._verified_signatures),
         }
+
+    async def _verify_transaction_on_chain(
+        self,
+        tx_signature: str,
+        expected_recipient: str,
+        expected_amount: int,
+        expected_memo: str,
+        expected_sender: str,
+    ) -> bool:
+        """
+        Verify a payment transaction on the Solana blockchain.
+
+        Checks:
+        1. Transaction exists and is confirmed
+        2. Transfer instruction sends correct amount to recipient
+        3. Memo instruction contains the challenge memo
+        4. Sender matches expected address
+        """
+        try:
+            tx_info = await self._solana.get_transaction(tx_signature)
+            if tx_info is None:
+                logger.warning("x402_tx_not_found", tx_signature=tx_signature)
+                return False
+
+            if tx_info.get("meta", {}).get("err") is not None:
+                logger.warning(
+                    "x402_tx_failed",
+                    tx_signature=tx_signature,
+                    error=tx_info["meta"]["err"],
+                )
+                return False
+
+            pre_balances = tx_info.get("meta", {}).get("preBalances", [])
+            post_balances = tx_info.get("meta", {}).get("postBalances", [])
+            account_keys = tx_info.get("transaction", {}).get("message", {}).get(
+                "accountKeys", []
+            )
+
+            recipient_idx = None
+            sender_idx = None
+            for i, key in enumerate(account_keys):
+                addr = key if isinstance(key, str) else key.get("pubkey", "")
+                if addr == expected_recipient:
+                    recipient_idx = i
+                if addr == expected_sender:
+                    sender_idx = i
+
+            if recipient_idx is None:
+                logger.warning("x402_recipient_not_in_tx", tx_signature=tx_signature)
+                return False
+
+            if sender_idx is None:
+                logger.warning("x402_sender_not_in_tx", tx_signature=tx_signature)
+                return False
+
+            if len(pre_balances) > recipient_idx and len(post_balances) > recipient_idx:
+                received = post_balances[recipient_idx] - pre_balances[recipient_idx]
+                if received < expected_amount:
+                    logger.warning(
+                        "x402_insufficient_amount",
+                        tx_signature=tx_signature,
+                        expected=expected_amount,
+                        received=received,
+                    )
+                    return False
+
+            log_messages = tx_info.get("meta", {}).get("logMessages", [])
+            memo_found = any(expected_memo in msg for msg in log_messages)
+            if not memo_found:
+                logger.warning(
+                    "x402_memo_not_found",
+                    tx_signature=tx_signature,
+                    expected_memo=expected_memo,
+                )
+                return False
+
+            return True
+
+        except Exception as exc:
+            logger.error(
+                "x402_verification_error",
+                tx_signature=tx_signature,
+                error=str(exc),
+            )
+            return False
+
+    async def _execute_refund_transfer(
+        self,
+        recipient: str,
+        amount_lamports: int,
+    ) -> str:
+        """Execute a SOL transfer for refund. Returns the tx signature."""
+        try:
+            tx_sig = await self._solana.send_sol(
+                to_address=recipient,
+                amount_lamports=amount_lamports,
+            )
+            logger.info(
+                "x402_refund_transfer_sent",
+                recipient=recipient,
+                amount=amount_lamports,
+                tx=tx_sig,
+            )
+            return tx_sig
+        except Exception as exc:
+            logger.error(
+                "x402_refund_transfer_failed",
+                recipient=recipient,
+                amount=amount_lamports,
+                error=str(exc),
+            )
+            raise RefundError(f"Refund transfer failed: {exc}") from exc
+
+    def _generate_challenge_id(self, mbti_type: str, timestamp: float) -> str:
+        """Generate a unique, signed challenge ID."""
+        nonce = secrets.token_hex(16)
+        raw = f"{mbti_type}:{timestamp}:{nonce}"
+        sig = hmac.new(self._hmac_secret, raw.encode(), hashlib.sha256).hexdigest()[:16]
+        return f"ch_{sig}_{nonce[:8]}"
+
+    def _generate_session_id(self, challenge_id: str, tx_signature: str) -> str:
+        """Generate a unique session ID from challenge and transaction."""
+        raw = f"{challenge_id}:{tx_signature}"
+        digest = hashlib.sha256(raw.encode()).hexdigest()[:24]
+        return f"sess_{digest}"
+
+    def _sign_session_id(self, session_id: str) -> str:
+        """Create an HMAC signature for a session ID."""
+        return hmac.new(
+            self._hmac_secret, session_id.encode(), hashlib.sha256
+        ).hexdigest()
+
+    @staticmethod
+    def _parse_header_params(header_value: str) -> dict[str, str]:
+        """Parse key=value pairs from a header string."""
+        params: dict[str, str] = {}
+        parts = header_value.split(",")
+        for part in parts:
+            part = part.strip()
+            if "=" not in part:
+                continue
+            key, _, value = part.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"')
+            params[key] = value
+        return params
+
+    async def _cleanup_loop(self) -> None:
+        """Periodically clean up expired challenges and sessions."""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                await self._cleanup_expired()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("x402_cleanup_error", error=str(exc))
+
+    async def _cleanup_expired(self) -> None:
+        """Remove expired challenges and mark expired sessions."""
+        now = time.time()
+        expired_challenges = [
+            cid for cid, c in self._pending_challenges.items() if c.is_expired()
+        ]
+        for cid in expired_challenges:
+            del self._pending_challenges[cid]
+
+        expired_sessions = 0
+        for session in self._active_sessions.values():
+            if session.status == PaymentStatus.CONFIRMED and now > session.expires_at:
+                session.status = PaymentStatus.EXPIRED
+                expired_sessions += 1
+
+        if expired_challenges or expired_sessions:
+            logger.info(
+                "x402_cleanup_complete",
+                expired_challenges=len(expired_challenges),
+                expired_sessions=expired_sessions,
+            )
+
+
+class PaymentVerificationError(Exception):
+    """Raised when x402 payment verification fails."""
+
+    def __init__(self, message: str, code: str = "UNKNOWN") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class RefundError(Exception):
+    """Raised when a refund cannot be processed."""
