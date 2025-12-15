@@ -333,3 +333,4 @@ class PikkyConfig(BaseSettings):
         """Calculate the x402 fee for a given MBTI type."""
         multiplier = self.fees.x402_fee_multiplier_per_mbti.get(mbti_type.upper(), 1.0)
         return int(self.fees.x402_base_fee_lamports * multiplier)
+
