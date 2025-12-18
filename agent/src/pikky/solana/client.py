@@ -237,3 +237,238 @@ class SolanaClient:
             ],
         )
         return result
+
+    async def get_recent_blockhash(self) -> str:
+        """
+        Get a recent blockhash for transaction building.
+
+        Caches the blockhash for 30 seconds to reduce RPC calls.
+
+        Returns:
+            Recent blockhash as a base58 string.
+        """
+        now = time.time()
+        if self._blockhash_cache and now - self._blockhash_cache_time < 30:
+            return self._blockhash_cache
+
+        result = await self._rpc_request(
+            "getLatestBlockhash",
+            [{"commitment": self._commitment}],
+        )
+        blockhash = result.get("value", {}).get("blockhash", "")
+        if not blockhash:
+            raise SolanaClientError("Failed to get recent blockhash")
+
+        self._blockhash_cache = blockhash
+        self._blockhash_cache_time = now
+        return blockhash
+
+    async def get_slot(self) -> int:
+        """Get the current slot number."""
+        now = time.time()
+        if self._slot_cache is not None and now - self._slot_cache_time < 2:
+            return self._slot_cache
+
+        result = await self._rpc_request("getSlot", [{"commitment": self._commitment}])
+        self._slot_cache = int(result)
+        self._slot_cache_time = now
+        return self._slot_cache
+
+    async def get_account_info(self, address: str) -> Optional[dict[str, Any]]:
+        """Fetch account information."""
+        result = await self._rpc_request(
+            "getAccountInfo",
+            [address, {"encoding": "jsonParsed", "commitment": self._commitment}],
+        )
+        value = result.get("value")
+        if value is None:
+            return None
+        return value
+
+    async def send_sol(
+        self,
+        to_address: str,
+        amount_lamports: int,
+        memo: Optional[str] = None,
+    ) -> str:
+        """
+        Send SOL to an address.
+
+        Args:
+            to_address: Recipient address.
+            amount_lamports: Amount in lamports.
+            memo: Optional memo to include.
+
+        Returns:
+            Transaction signature.
+        """
+        from pikky.solana.transaction import TransactionBuilder
+
+        if self._public_key is None:
+            raise SolanaClientError("No wallet loaded")
+
+        builder = TransactionBuilder(self)
+        builder.add_sol_transfer(
+            from_pubkey=self._public_key,
+            to_pubkey=to_address,
+            lamports=amount_lamports,
+        )
+
+        if memo:
+            builder.add_memo(memo)
+
+        tx_bytes = await builder.build_and_sign(self._keypair_bytes)
+        return await self.send_raw_transaction(tx_bytes)
+
+    async def send_raw_transaction(
+        self,
+        transaction_bytes: bytes,
+        skip_preflight: bool = False,
+    ) -> str:
+        """
+        Send a raw serialized transaction.
+
+        Args:
+            transaction_bytes: Serialized transaction bytes.
+            skip_preflight: Skip preflight simulation.
+
+        Returns:
+            Transaction signature.
+        """
+        encoded = base64.b64encode(transaction_bytes).decode("ascii")
+
+        result = await self._rpc_request(
+            "sendTransaction",
+            [
+                encoded,
+                {
+                    "encoding": "base64",
+                    "skipPreflight": skip_preflight,
+                    "preflightCommitment": self._commitment,
+                    "maxRetries": 3,
+                },
+            ],
+        )
+
+        if isinstance(result, str):
+            sig = result
+        else:
+            sig = str(result)
+
+        logger.info("transaction_sent", signature=sig[:16] + "...")
+        return sig
+
+    async def sign_and_send_transaction(
+        self,
+        transaction_b64: str,
+    ) -> str:
+        """
+        Sign a base64-encoded transaction and send it.
+
+        Used for Jupiter swap transactions that come pre-built.
+
+        Args:
+            transaction_b64: Base64-encoded transaction.
+
+        Returns:
+            Transaction signature.
+        """
+        if self._keypair_bytes is None:
+            raise SolanaClientError("No keypair loaded for signing")
+
+        tx_bytes = base64.b64decode(transaction_b64)
+
+        try:
+            from solders.transaction import VersionedTransaction
+            from solders.keypair import Keypair
+
+            keypair = Keypair.from_bytes(self._keypair_bytes)
+            tx = VersionedTransaction.from_bytes(tx_bytes)
+            signed_tx = VersionedTransaction(tx.message, [keypair])
+            signed_bytes = bytes(signed_tx)
+        except ImportError:
+            logger.warning("solders_not_available_using_raw_send")
+            signed_bytes = tx_bytes
+
+        return await self.send_raw_transaction(signed_bytes, skip_preflight=True)
+
+    async def confirm_transaction(
+        self,
+        signature: str,
+        timeout_seconds: float = 60,
+        poll_interval: float = 2.0,
+    ) -> bool:
+        """
+        Wait for a transaction to be confirmed.
+
+        Args:
+            signature: Transaction signature to confirm.
+            timeout_seconds: Maximum time to wait.
+            poll_interval: Seconds between status checks.
+
+        Returns:
+            True if confirmed, False if timed out.
+        """
+        start = time.time()
+
+        while time.time() - start < timeout_seconds:
+            try:
+                result = await self._rpc_request(
+                    "getSignatureStatuses",
+                    [[signature]],
+                )
+                statuses = result.get("value", [])
+                if statuses and statuses[0] is not None:
+                    status = statuses[0]
+                    if status.get("err"):
+                        logger.error(
+                            "transaction_failed",
+                            signature=signature[:16],
+                            error=status["err"],
+                        )
+                        return False
+                    conf_status = status.get("confirmationStatus", "")
+                    if conf_status in ("confirmed", "finalized"):
+                        logger.info(
+                            "transaction_confirmed",
+                            signature=signature[:16],
+                            status=conf_status,
+                            elapsed=f"{time.time() - start:.1f}s",
+                        )
+                        return True
+            except Exception as exc:
+                logger.warning(
+                    "confirm_check_error",
+                    signature=signature[:16],
+                    error=str(exc),
+                )
+
+            await asyncio.sleep(poll_interval)
+
+        logger.warning(
+            "transaction_confirmation_timeout",
+            signature=signature[:16],
+            timeout=timeout_seconds,
+        )
+        return False
+
+    async def get_minimum_balance_for_rent(self, data_size: int) -> int:
+        """Get minimum balance for rent exemption for a given data size."""
+        result = await self._rpc_request(
+            "getMinimumBalanceForRentExemption",
+            [data_size],
+        )
+        return int(result)
+
+    async def get_token_supply(self, mint: str) -> dict[str, Any]:
+        """Get the total supply of an SPL token."""
+        result = await self._rpc_request(
+            "getTokenSupply",
+            [mint, {"commitment": self._commitment}],
+        )
+        value = result.get("value", {})
+        return {
+            "amount": int(value.get("amount", "0")),
+            "decimals": value.get("decimals", 0),
+            "ui_amount": float(value.get("uiAmountString", "0")),
+        }
