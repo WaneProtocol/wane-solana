@@ -334,4 +334,3 @@ class StrategyRegistry:
             "trade_count": strategy._trade_count,
             "signal_count": strategy._signal_count,
         }
-
