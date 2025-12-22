@@ -472,3 +472,188 @@ class SolanaClient:
             "decimals": value.get("decimals", 0),
             "ui_amount": float(value.get("uiAmountString", "0")),
         }
+
+    async def simulate_transaction(
+        self,
+        transaction_b64: str,
+    ) -> dict[str, Any]:
+        """
+        Simulate a transaction without sending it.
+
+        Returns:
+            Simulation result with logs and potential errors.
+        """
+        result = await self._rpc_request(
+            "simulateTransaction",
+            [
+                transaction_b64,
+                {
+                    "encoding": "base64",
+                    "commitment": self._commitment,
+                    "sigVerify": False,
+                },
+            ],
+        )
+        value = result.get("value", {})
+        return {
+            "err": value.get("err"),
+            "logs": value.get("logs", []),
+            "units_consumed": value.get("unitsConsumed", 0),
+        }
+
+    def _load_keypair_from_file(self, path: str) -> None:
+        """Load keypair from a JSON file (Solana CLI format)."""
+        filepath = Path(path)
+        if not filepath.exists():
+            raise SolanaClientError(f"Keypair file not found: {path}")
+
+        data = json.loads(filepath.read_text())
+        if isinstance(data, list):
+            self._keypair_bytes = bytes(data)
+        else:
+            raise SolanaClientError(f"Invalid keypair format in {path}")
+
+        self._public_key = self._derive_pubkey(self._keypair_bytes)
+        logger.info("keypair_loaded_from_file", pubkey=self._public_key)
+
+    def _load_keypair_from_base58(self, key_b58: str) -> None:
+        """Load keypair from a base58-encoded private key."""
+        try:
+            key_bytes = base58.b58decode(key_b58)
+            if len(key_bytes) == 32:
+                self._keypair_bytes = key_bytes + b"\x00" * 32
+            elif len(key_bytes) == 64:
+                self._keypair_bytes = key_bytes
+            else:
+                raise SolanaClientError(f"Invalid key length: {len(key_bytes)}")
+
+            self._public_key = self._derive_pubkey(self._keypair_bytes)
+            logger.info("keypair_loaded_from_b58", pubkey=self._public_key)
+
+        except Exception as exc:
+            raise SolanaClientError(f"Failed to decode base58 key: {exc}") from exc
+
+    @staticmethod
+    def _derive_pubkey(keypair_bytes: bytes) -> str:
+        """Derive public key from keypair bytes."""
+        try:
+            from solders.keypair import Keypair
+            kp = Keypair.from_bytes(keypair_bytes)
+            return str(kp.pubkey())
+        except ImportError:
+            pubkey_bytes = keypair_bytes[32:64]
+            return base58.b58encode(pubkey_bytes).decode("ascii")
+
+    @staticmethod
+    def _derive_ata(owner: str, mint: str) -> str:
+        """
+        Derive the Associated Token Account address.
+
+        This is a deterministic derivation using program-derived addresses.
+        """
+        try:
+            from solders.pubkey import Pubkey
+            owner_pk = Pubkey.from_string(owner)
+            mint_pk = Pubkey.from_string(mint)
+            token_program = Pubkey.from_string(TOKEN_PROGRAM_ID)
+            ata_program = Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM_ID)
+
+            ata, _bump = Pubkey.find_program_address(
+                [bytes(owner_pk), bytes(token_program), bytes(mint_pk)],
+                ata_program,
+            )
+            return str(ata)
+        except ImportError:
+            import hashlib
+            seeds = (
+                base58.b58decode(owner)
+                + base58.b58decode(TOKEN_PROGRAM_ID)
+                + base58.b58decode(mint)
+            )
+            h = hashlib.sha256(seeds + base58.b58decode(ASSOCIATED_TOKEN_PROGRAM_ID) + b"ProgramDerivedAddress").digest()
+            return base58.b58encode(h[:32]).decode("ascii")
+
+    async def _rpc_request(
+        self,
+        method: str,
+        params: Optional[list] = None,
+    ) -> Any:
+        """
+        Make a JSON-RPC request to the Solana node.
+
+        Handles retries and error parsing.
+        """
+        if not self._http:
+            raise SolanaClientError("Client not connected. Call connect() first.")
+
+        self._request_id += 1
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": method,
+            "params": params or [],
+        }
+
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self._max_retries):
+            try:
+                resp = await self._http.post(
+                    self._rpc_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                if "error" in data:
+                    error = data["error"]
+                    code = error.get("code", 0)
+                    message = error.get("message", "Unknown RPC error")
+
+                    if code == 429:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+
+                    raise SolanaRpcError(message, code=code)
+
+                return data.get("result")
+
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code == 429:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                elif exc.response.status_code >= 500:
+                    await asyncio.sleep(1)
+                    continue
+                raise SolanaClientError(
+                    f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+                ) from exc
+
+            except (httpx.ConnectError, httpx.ReadTimeout) as exc:
+                last_error = exc
+                logger.warning(
+                    "rpc_connection_error",
+                    method=method,
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
+                await asyncio.sleep(1)
+                continue
+
+        raise SolanaClientError(
+            f"RPC request failed after {self._max_retries} attempts: {last_error}"
+        )
+
+
+class SolanaClientError(Exception):
+    """General Solana client error."""
+
+
+class SolanaRpcError(SolanaClientError):
+    """Solana RPC error with error code."""
+
+    def __init__(self, message: str, code: int = 0) -> None:
+        super().__init__(message)
+        self.code = code
