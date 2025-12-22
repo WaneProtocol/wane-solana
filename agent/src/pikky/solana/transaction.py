@@ -200,3 +200,196 @@ class TransactionMessage:
                 (value >> 14) & 0x03,
             ])
 
+
+class TransactionBuilder:
+    """
+    Builder for constructing Solana transactions.
+
+    Supports adding multiple instruction types and handles
+    the full lifecycle of building, signing, and serializing.
+    """
+
+    def __init__(self, solana_client: Any) -> None:
+        """
+        Initialize the transaction builder.
+
+        Args:
+            solana_client: SolanaClient instance for blockhash fetching.
+        """
+        self._client = solana_client
+        self._instructions: list[Instruction] = []
+        self._fee_payer: Optional[str] = None
+        self._compute_unit_limit: Optional[int] = None
+        self._compute_unit_price: Optional[int] = None
+
+        logger.debug("transaction_builder_created")
+
+    def set_fee_payer(self, pubkey: str) -> TransactionBuilder:
+        """Set the fee payer for the transaction."""
+        self._fee_payer = pubkey
+        return self
+
+    def set_compute_budget(
+        self,
+        unit_limit: int = 400_000,
+        unit_price_micro_lamports: int = 1000,
+    ) -> TransactionBuilder:
+        """
+        Set compute budget for the transaction.
+
+        Args:
+            unit_limit: Maximum compute units.
+            unit_price_micro_lamports: Price per compute unit in micro-lamports.
+        """
+        self._compute_unit_limit = unit_limit
+        self._compute_unit_price = unit_price_micro_lamports
+        return self
+
+    def add_instruction(self, instruction: Instruction) -> TransactionBuilder:
+        """Add a raw instruction to the transaction."""
+        self._instructions.append(instruction)
+        return self
+
+    def add_sol_transfer(
+        self,
+        from_pubkey: str,
+        to_pubkey: str,
+        lamports: int,
+    ) -> TransactionBuilder:
+        """
+        Add a SOL transfer instruction.
+
+        Args:
+            from_pubkey: Sender address.
+            to_pubkey: Recipient address.
+            lamports: Amount in lamports.
+        """
+        data = struct.pack("<I", SystemInstruction.TRANSFER) + struct.pack("<Q", lamports)
+
+        instruction = Instruction(
+            program_id=SYSTEM_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=from_pubkey, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=to_pubkey, is_signer=False, is_writable=True),
+            ],
+            data=data,
+        )
+        self._instructions.append(instruction)
+
+        if self._fee_payer is None:
+            self._fee_payer = from_pubkey
+
+        return self
+
+    def add_memo(self, memo_text: str) -> TransactionBuilder:
+        """
+        Add a memo instruction.
+
+        Args:
+            memo_text: Text content of the memo.
+        """
+        instruction = Instruction(
+            program_id=MEMO_PROGRAM_ID,
+            accounts=[],
+            data=memo_text.encode("utf-8"),
+        )
+        self._instructions.append(instruction)
+        return self
+
+    def add_create_account(
+        self,
+        from_pubkey: str,
+        new_account_pubkey: str,
+        lamports: int,
+        space: int,
+        program_id: str,
+    ) -> TransactionBuilder:
+        """
+        Add a create account instruction.
+
+        Args:
+            from_pubkey: Funding account.
+            new_account_pubkey: New account to create.
+            lamports: Lamports to fund the account with.
+            space: Data size in bytes.
+            program_id: Owner program of the new account.
+        """
+        data = (
+            struct.pack("<I", SystemInstruction.CREATE_ACCOUNT)
+            + struct.pack("<Q", lamports)
+            + struct.pack("<Q", space)
+            + base58.b58decode(program_id)
+        )
+
+        instruction = Instruction(
+            program_id=SYSTEM_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=from_pubkey, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=new_account_pubkey, is_signer=True, is_writable=True),
+            ],
+            data=data,
+        )
+        self._instructions.append(instruction)
+        return self
+
+    def add_create_ata(
+        self,
+        payer: str,
+        owner: str,
+        mint: str,
+    ) -> TransactionBuilder:
+        """
+        Add instruction to create an Associated Token Account.
+
+        Args:
+            payer: Account paying for creation.
+            owner: Owner of the new token account.
+            mint: Token mint address.
+        """
+        ata = self._derive_ata_address(owner, mint)
+
+        instruction = Instruction(
+            program_id=ASSOCIATED_TOKEN_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=ata, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=owner, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
+            ],
+            data=b"",
+        )
+        self._instructions.append(instruction)
+        return self
+
+    def add_token_transfer(
+        self,
+        source: str,
+        destination: str,
+        owner: str,
+        amount: int,
+    ) -> TransactionBuilder:
+        """
+        Add an SPL token transfer instruction.
+
+        Args:
+            source: Source token account.
+            destination: Destination token account.
+            owner: Authority/owner of the source account.
+            amount: Amount of tokens to transfer.
+        """
+        data = bytes([3]) + struct.pack("<Q", amount)
+
+        instruction = Instruction(
+            program_id=TOKEN_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=source, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=destination, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=owner, is_signer=True, is_writable=False),
+            ],
+            data=data,
+        )
+        self._instructions.append(instruction)
+        return self
