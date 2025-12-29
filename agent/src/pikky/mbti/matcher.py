@@ -134,3 +134,313 @@ class MbtiMatcher:
     def __init__(self) -> None:
         self._profiles = get_all_profiles()
         logger.info("mbti_matcher_initialized")
+
+    def match_from_preferences(self, prefs: PreferenceInput) -> MatchResult:
+        """
+        Match MBTI type from user-provided preferences.
+
+        Args:
+            prefs: User preference inputs.
+
+        Returns:
+            MatchResult with the best-fit type and confidence.
+        """
+        reasoning: list[str] = []
+
+        ei_score, ei_conf = self._score_ei_from_preferences(prefs, reasoning)
+        sn_score, sn_conf = self._score_sn_from_preferences(prefs, reasoning)
+        tf_score, tf_conf = self._score_tf_from_preferences(prefs, reasoning)
+        jp_score, jp_conf = self._score_jp_from_preferences(prefs, reasoning)
+
+        axes = [
+            AxisScore("EI", "Introversion", "Extraversion", ei_score, ei_conf),
+            AxisScore("SN", "Sensing", "Intuition", sn_score, sn_conf),
+            AxisScore("TF", "Feeling", "Thinking", tf_score, tf_conf),
+            AxisScore("JP", "Perceiving", "Judging", jp_score, jp_conf),
+        ]
+
+        return self._resolve_type(axes, reasoning)
+
+    def match_from_behavior(self, metrics: BehaviorMetrics) -> MatchResult:
+        """
+        Match MBTI type from on-chain trading behavior analysis.
+
+        Args:
+            metrics: Quantified trading behavior metrics.
+
+        Returns:
+            MatchResult with the best-fit type and confidence.
+        """
+        reasoning: list[str] = []
+
+        ei_score, ei_conf = self._score_ei_from_behavior(metrics, reasoning)
+        sn_score, sn_conf = self._score_sn_from_behavior(metrics, reasoning)
+        tf_score, tf_conf = self._score_tf_from_behavior(metrics, reasoning)
+        jp_score, jp_conf = self._score_jp_from_behavior(metrics, reasoning)
+
+        axes = [
+            AxisScore("EI", "Introversion", "Extraversion", ei_score, ei_conf),
+            AxisScore("SN", "Sensing", "Intuition", sn_score, sn_conf),
+            AxisScore("TF", "Feeling", "Thinking", tf_score, tf_conf),
+            AxisScore("JP", "Perceiving", "Judging", jp_score, jp_conf),
+        ]
+
+        return self._resolve_type(axes, reasoning)
+
+    def match_hybrid(
+        self,
+        prefs: Optional[PreferenceInput],
+        metrics: Optional[BehaviorMetrics],
+        behavior_weight: float = 0.6,
+    ) -> MatchResult:
+        """
+        Match using both preferences and behavior, weighted.
+
+        Args:
+            prefs: Optional user preferences.
+            metrics: Optional behavior metrics.
+            behavior_weight: Weight given to behavior (0-1). Preferences get 1-weight.
+
+        Returns:
+            MatchResult from the blended analysis.
+        """
+        if prefs is None and metrics is None:
+            return self._default_result()
+
+        if prefs is None:
+            return self.match_from_behavior(metrics)  # type: ignore
+        if metrics is None:
+            return self.match_from_preferences(prefs)
+
+        pref_result = self.match_from_preferences(prefs)
+        behavior_result = self.match_from_behavior(metrics)
+
+        reasoning: list[str] = ["Hybrid matching with behavior and preferences"]
+        blended_axes: list[AxisScore] = []
+
+        pref_weight = 1.0 - behavior_weight
+
+        for p_ax, b_ax in zip(pref_result.axis_scores, behavior_result.axis_scores):
+            blended_score = p_ax.score * pref_weight + b_ax.score * behavior_weight
+            blended_conf = p_ax.confidence * pref_weight + b_ax.confidence * behavior_weight
+
+            blended_axes.append(AxisScore(
+                axis=p_ax.axis,
+                left_label=p_ax.left_label,
+                right_label=p_ax.right_label,
+                score=blended_score,
+                confidence=blended_conf,
+            ))
+
+        reasoning.extend(pref_result.reasoning[:3])
+        reasoning.extend(behavior_result.reasoning[:3])
+
+        return self._resolve_type(blended_axes, reasoning)
+
+    def score_type_fit(
+        self,
+        mbti_type: MbtiType,
+        metrics: BehaviorMetrics,
+    ) -> float:
+        """
+        Score how well a user's behavior fits a specific MBTI type.
+
+        Args:
+            mbti_type: The type to score against.
+            metrics: The user's trading behavior.
+
+        Returns:
+            Fit score from 0 (poor fit) to 1 (perfect fit).
+        """
+        profile = self._profiles[mbti_type]
+        dimensions: list[float] = []
+
+        risk_diff = abs(profile.risk_tolerance - self._estimate_risk_tolerance(metrics))
+        dimensions.append(1.0 - min(risk_diff, 1.0))
+
+        freq_map = {"very_low": 0.5, "low": 2, "medium": 5, "high": 10, "very_high": 20}
+        expected_freq = freq_map.get(profile.trade_frequency.value, 5)
+        actual_freq = metrics.trade_frequency_per_day
+        freq_diff = abs(expected_freq - actual_freq) / max(expected_freq, 1)
+        dimensions.append(1.0 - min(freq_diff, 1.0))
+
+        hold_map = {"scalp": 300, "short": 1800, "medium": 7200, "long": 28800, "hodl": 86400}
+        expected_hold = hold_map.get(profile.holding_period.value, 7200)
+        hold_diff = abs(expected_hold - metrics.avg_hold_duration_seconds) / max(expected_hold, 1)
+        dimensions.append(1.0 - min(hold_diff, 1.0))
+
+        emotion_diff = abs(profile.emotional_factor - self._estimate_emotional_factor(metrics))
+        dimensions.append(1.0 - min(emotion_diff, 1.0))
+
+        discipline_diff = abs(profile.discipline_score - self._estimate_discipline(metrics))
+        dimensions.append(1.0 - min(discipline_diff, 1.0))
+
+        weights = [0.3, 0.2, 0.2, 0.15, 0.15]
+        weighted_sum = sum(d * w for d, w in zip(dimensions, weights))
+
+        return max(0.0, min(1.0, weighted_sum))
+
+    def _score_ei_from_preferences(
+        self,
+        prefs: PreferenceInput,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score E/I axis from preferences. Positive = Extravert."""
+        score = 0.0
+        confidence = 0.3
+
+        if prefs.social_trading is not None:
+            if prefs.social_trading:
+                score += 0.5
+                reasoning.append("Prefers social trading (E)")
+            else:
+                score -= 0.5
+                reasoning.append("Prefers solo trading (I)")
+            confidence += 0.2
+
+        if prefs.trade_frequency_preference:
+            freq = prefs.trade_frequency_preference.lower()
+            if freq in ("high", "very_high"):
+                score += 0.3
+                reasoning.append("High trade frequency preference (E)")
+            elif freq in ("low", "very_low"):
+                score -= 0.3
+                reasoning.append("Low trade frequency preference (I)")
+            confidence += 0.15
+
+        if prefs.market_chaos_reaction:
+            reaction = prefs.market_chaos_reaction.lower()
+            if reaction in ("excited", "opportunity"):
+                score += 0.3
+            elif reaction in ("anxious", "wait"):
+                score -= 0.3
+            confidence += 0.1
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_sn_from_preferences(
+        self,
+        prefs: PreferenceInput,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score S/N axis. Positive = Intuition (N)."""
+        score = 0.0
+        confidence = 0.3
+
+        if prefs.analysis_depth:
+            depth = prefs.analysis_depth.lower()
+            if depth in ("deep", "thorough", "research"):
+                score -= 0.4
+                reasoning.append("Thorough analysis preference (S)")
+            elif depth in ("quick", "intuitive", "gut"):
+                score += 0.4
+                reasoning.append("Intuitive analysis preference (N)")
+            confidence += 0.2
+
+        if prefs.decision_style:
+            style = prefs.decision_style.lower()
+            if style in ("data", "numbers", "charts"):
+                score -= 0.3
+                reasoning.append("Data-driven decisions (S)")
+            elif style in ("narrative", "vision", "feeling"):
+                score += 0.3
+                reasoning.append("Narrative-driven decisions (N)")
+            confidence += 0.15
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_tf_from_preferences(
+        self,
+        prefs: PreferenceInput,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score T/F axis. Positive = Thinking (T)."""
+        score = 0.0
+        confidence = 0.3
+
+        if prefs.loss_reaction:
+            reaction = prefs.loss_reaction.lower()
+            if reaction in ("cut_immediately", "accept", "systematic"):
+                score += 0.5
+                reasoning.append("Systematic loss handling (T)")
+            elif reaction in ("hold_hope", "emotional", "denial"):
+                score -= 0.5
+                reasoning.append("Emotional loss handling (F)")
+            confidence += 0.25
+
+        if prefs.win_reaction:
+            reaction = prefs.win_reaction.lower()
+            if reaction in ("take_profit", "rebalance", "systematic"):
+                score += 0.3
+                reasoning.append("Systematic profit taking (T)")
+            elif reaction in ("celebrate", "share", "euphoric"):
+                score -= 0.3
+                reasoning.append("Emotional profit response (F)")
+            confidence += 0.15
+
+        if prefs.risk_appetite is not None:
+            if prefs.risk_appetite <= 3:
+                score += 0.2
+            elif prefs.risk_appetite >= 8:
+                score -= 0.1
+            confidence += 0.1
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_jp_from_preferences(
+        self,
+        prefs: PreferenceInput,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score J/P axis. Positive = Judging (J)."""
+        score = 0.0
+        confidence = 0.3
+
+        if prefs.position_sizing_style:
+            style = prefs.position_sizing_style.lower()
+            if style in ("fixed", "systematic", "rules"):
+                score += 0.5
+                reasoning.append("Fixed position sizing (J)")
+            elif style in ("variable", "feel", "dynamic"):
+                score -= 0.5
+                reasoning.append("Variable position sizing (P)")
+            confidence += 0.2
+
+        if prefs.preferred_holding_time:
+            hold = prefs.preferred_holding_time.lower()
+            if hold in ("long", "hodl", "weeks"):
+                score += 0.3
+                reasoning.append("Long holding preference (J)")
+            elif hold in ("short", "scalp", "minutes"):
+                score -= 0.3
+                reasoning.append("Short holding preference (P)")
+            confidence += 0.15
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_ei_from_behavior(
+        self,
+        metrics: BehaviorMetrics,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score E/I from trading behavior."""
+        score = 0.0
+        confidence = 0.4
+
+        if metrics.trade_frequency_per_day > 8:
+            score += 0.5
+            reasoning.append(f"High trade frequency ({metrics.trade_frequency_per_day:.1f}/day) suggests E")
+        elif metrics.trade_frequency_per_day < 2:
+            score -= 0.5
+            reasoning.append(f"Low trade frequency ({metrics.trade_frequency_per_day:.1f}/day) suggests I")
+
+        if metrics.unique_tokens_traded > 10:
+            score += 0.3
+            reasoning.append(f"Diverse token portfolio ({metrics.unique_tokens_traded} tokens) suggests E")
+        elif metrics.unique_tokens_traded <= 3:
+            score -= 0.3
+
+        if metrics.total_trades > 5:
+            confidence += 0.2
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
