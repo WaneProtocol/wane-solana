@@ -502,3 +502,4 @@ _ALL_PROFILES: dict[MbtiType, MbtiProfile] = {
         preferred_volatility="high",
     ),
 }
+
