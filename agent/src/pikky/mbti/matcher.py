@@ -444,3 +444,237 @@ class MbtiMatcher:
             confidence += 0.2
 
         return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_sn_from_behavior(
+        self,
+        metrics: BehaviorMetrics,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score S/N from behavior. High volatility trading = N."""
+        score = 0.0
+        confidence = 0.35
+
+        total_vol_trades = metrics.trades_during_high_volatility + metrics.trades_during_low_volatility
+        if total_vol_trades > 0:
+            high_vol_ratio = metrics.trades_during_high_volatility / total_vol_trades
+            if high_vol_ratio > 0.6:
+                score += 0.4
+                reasoning.append("Trades during high volatility suggests N")
+            elif high_vol_ratio < 0.3:
+                score -= 0.4
+                reasoning.append("Prefers low volatility suggests S")
+            confidence += 0.2
+
+        if metrics.dca_pattern_detected:
+            score -= 0.3
+            reasoning.append("DCA pattern detected suggests S")
+            confidence += 0.15
+
+        if metrics.contrarian_trade_pct > 0.3:
+            score += 0.3
+            confidence += 0.1
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_tf_from_behavior(
+        self,
+        metrics: BehaviorMetrics,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score T/F from behavior. Disciplined = T, Emotional = F."""
+        score = 0.0
+        confidence = 0.35
+
+        if metrics.uses_stop_loss:
+            score += 0.4
+            reasoning.append("Uses stop losses suggests T")
+            confidence += 0.15
+        else:
+            score -= 0.2
+
+        if metrics.panic_sell_count > 2:
+            score -= 0.4
+            reasoning.append(f"{metrics.panic_sell_count} panic sells suggests F")
+            confidence += 0.15
+
+        if metrics.fomo_buy_count > 3:
+            score -= 0.3
+            reasoning.append(f"{metrics.fomo_buy_count} FOMO buys suggests F")
+            confidence += 0.1
+
+        if metrics.consecutive_loss_max > 5 and metrics.total_trades > 20:
+            score -= 0.2
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _score_jp_from_behavior(
+        self,
+        metrics: BehaviorMetrics,
+        reasoning: list[str],
+    ) -> tuple[float, float]:
+        """Score J/P from behavior. Structured = J, Flexible = P."""
+        score = 0.0
+        confidence = 0.35
+
+        if metrics.dca_pattern_detected:
+            score += 0.5
+            reasoning.append("Systematic DCA pattern suggests J")
+            confidence += 0.2
+
+        size_variance = metrics.max_trade_size_pct - metrics.avg_trade_size_pct
+        if metrics.avg_trade_size_pct > 0:
+            cv = size_variance / metrics.avg_trade_size_pct
+            if cv < 0.3:
+                score += 0.3
+                reasoning.append("Consistent position sizing suggests J")
+            elif cv > 1.0:
+                score -= 0.3
+                reasoning.append("Highly variable position sizing suggests P")
+            confidence += 0.15
+
+        if metrics.avg_hold_duration_seconds > 14400:
+            score += 0.2
+        elif metrics.avg_hold_duration_seconds < 600:
+            score -= 0.2
+
+        return max(-1, min(1, score)), min(confidence, 1.0)
+
+    def _resolve_type(
+        self,
+        axes: list[AxisScore],
+        reasoning: list[str],
+    ) -> MatchResult:
+        """Resolve axis scores into a final MBTI type."""
+        type_str = ""
+        for ax in axes:
+            type_str += ax.result
+
+        try:
+            primary = MbtiType(type_str)
+        except ValueError:
+            primary = MbtiType.ISTJ
+            reasoning.append(f"Could not resolve type '{type_str}', defaulting to ISTJ")
+
+        avg_confidence = sum(ax.confidence for ax in axes) / len(axes)
+
+        alternatives = self._compute_alternatives(axes, primary)
+
+        return MatchResult(
+            primary_type=primary,
+            confidence=avg_confidence,
+            axis_scores=axes,
+            alternative_types=alternatives,
+            reasoning=reasoning,
+        )
+
+    def _compute_alternatives(
+        self,
+        axes: list[AxisScore],
+        primary: MbtiType,
+    ) -> list[tuple[MbtiType, float]]:
+        """
+        Compute alternative types ranked by proximity.
+
+        For each axis near the boundary (low confidence), flip it to produce
+        alternative types.
+        """
+        alternatives: list[tuple[MbtiType, float]] = []
+
+        weak_axes = sorted(axes, key=lambda a: abs(a.score))
+
+        for i, weak_ax in enumerate(weak_axes[:2]):
+            flipped_str = ""
+            for ax in axes:
+                if ax.axis == weak_ax.axis:
+                    flipped_score = -ax.score
+                    temp = AxisScore(ax.axis, ax.left_label, ax.right_label, flipped_score, ax.confidence)
+                    flipped_str += temp.result
+                else:
+                    flipped_str += ax.result
+
+            try:
+                alt_type = MbtiType(flipped_str)
+                if alt_type != primary:
+                    score = 1.0 - abs(weak_ax.score)
+                    alternatives.append((alt_type, score))
+            except ValueError:
+                continue
+
+        alternatives.sort(key=lambda x: x[1], reverse=True)
+        return alternatives[:3]
+
+    def _estimate_risk_tolerance(self, metrics: BehaviorMetrics) -> float:
+        """Estimate risk tolerance from behavior metrics."""
+        factors = []
+
+        if metrics.max_trade_size_pct > 0:
+            factors.append(min(metrics.max_trade_size_pct / 0.20, 1.0))
+
+        if metrics.max_drawdown_pct > 0:
+            factors.append(min(metrics.max_drawdown_pct / 0.30, 1.0))
+
+        factors.append(min(metrics.trade_frequency_per_day / 15, 1.0))
+
+        if metrics.avg_slippage_tolerance_bps > 0:
+            factors.append(min(metrics.avg_slippage_tolerance_bps / 200, 1.0))
+
+        if not factors:
+            return 0.5
+        return sum(factors) / len(factors)
+
+    def _estimate_emotional_factor(self, metrics: BehaviorMetrics) -> float:
+        """Estimate emotional trading factor from behavior."""
+        indicators = []
+
+        if metrics.total_trades > 0:
+            panic_rate = metrics.panic_sell_count / metrics.total_trades
+            indicators.append(min(panic_rate * 10, 1.0))
+
+            fomo_rate = metrics.fomo_buy_count / metrics.total_trades
+            indicators.append(min(fomo_rate * 10, 1.0))
+
+        if not indicators:
+            return 0.5
+        return sum(indicators) / len(indicators)
+
+    def _estimate_discipline(self, metrics: BehaviorMetrics) -> float:
+        """Estimate trading discipline from behavior."""
+        scores = []
+
+        if metrics.uses_stop_loss:
+            scores.append(0.8)
+        else:
+            scores.append(0.3)
+
+        if metrics.dca_pattern_detected:
+            scores.append(0.9)
+        else:
+            scores.append(0.5)
+
+        if metrics.avg_trade_size_pct > 0 and metrics.max_trade_size_pct > 0:
+            consistency = 1.0 - min(
+                (metrics.max_trade_size_pct - metrics.avg_trade_size_pct)
+                / metrics.avg_trade_size_pct,
+                1.0,
+            )
+            scores.append(consistency)
+
+        if not scores:
+            return 0.5
+        return sum(scores) / len(scores)
+
+    def _default_result(self) -> MatchResult:
+        """Return the default ISTJ result when no data is available."""
+        axes = [
+            AxisScore("EI", "Introversion", "Extraversion", -0.3, 0.2),
+            AxisScore("SN", "Sensing", "Intuition", -0.3, 0.2),
+            AxisScore("TF", "Feeling", "Thinking", 0.2, 0.2),
+            AxisScore("JP", "Perceiving", "Judging", 0.3, 0.2),
+        ]
+        return MatchResult(
+            primary_type=MbtiType.ISTJ,
+            confidence=0.2,
+            axis_scores=axes,
+            alternative_types=[],
+            reasoning=["No data available, defaulting to ISTJ (The DCA Machine)"],
+        )
