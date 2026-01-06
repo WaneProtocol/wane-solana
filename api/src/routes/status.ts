@@ -447,3 +447,58 @@ async function fetchPositions(
     };
   });
 }
+
+function getPeriodMs(period: string): number {
+  switch (period) {
+    case "1H":
+      return 3_600_000;
+    case "1D":
+      return 86_400_000;
+    case "1W":
+      return 7 * 86_400_000;
+    case "1M":
+      return 30 * 86_400_000;
+    case "ALL":
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+function computeSharpe(returns: number[]): number {
+  if (returns.length < 2) return 0;
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance =
+    returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) /
+    (returns.length - 1);
+  const stdDev = Math.sqrt(variance);
+  return stdDev === 0 ? 0 : mean / stdDev;
+}
+
+function buildEquityCurve(
+  initial: number,
+  closedPositions: OnChainPosition[]
+): number[] {
+  const sorted = [...closedPositions].sort(
+    (a, b) => (a.closedAt ?? 0) - (b.closedAt ?? 0)
+  );
+  const curve = [initial];
+  let running = initial;
+  for (const p of sorted) {
+    running += p.realizedPnl;
+    curve.push(running);
+  }
+  return curve;
+}
+
+function computeMaxDrawdown(curve: number[]): number {
+  if (curve.length < 2) return 0;
+  let maxDD = 0;
+  let peak = curve[0];
+  for (const val of curve) {
+    if (val > peak) peak = val;
+    const dd = (peak - val) / peak;
+    if (dd > maxDD) maxDD = dd;
+  }
+  return maxDD;
+}
