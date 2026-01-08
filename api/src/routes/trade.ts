@@ -673,3 +673,10 @@ async function closeTrade(
 
   return txSignature;
 }
+
+function createInstructionDiscriminator(name: string): Buffer {
+  const crypto = require("crypto");
+  const preimage = `global:${name}`;
+  const hash = crypto.createHash("sha256").update(preimage).digest();
+  return hash.slice(0, 8);
+}
