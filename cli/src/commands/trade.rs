@@ -224,3 +224,227 @@ pub fn execute_open_trade(
 }
 
 /// Close an existing position.
+pub fn execute_close_position(
+    rpc_url: &str,
+    program_id: &Pubkey,
+    keypair: &Keypair,
+    authority: &Pubkey,
+    position_id: u64,
+    exit_price: f64,
+    close_reason: u8,
+) -> Result<()> {
+    let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+    let payer = keypair;
+
+    let (agent_pda, _) = derive_agent_pda(program_id, authority);
+    let (user_pda, _) = derive_user_pda(program_id, &agent_pda, &payer.pubkey());
+    let (position_pda, _) = derive_position_pda(program_id, &user_pda, position_id);
+
+    let agent_data = client.get_account_data(&agent_pda)?;
+    let vault_offset = 8 + 1 + 32 + 32;
+    let vault_pubkey = Pubkey::try_from(&agent_data[vault_offset..vault_offset + 32])?;
+
+    let price_scaled = (exit_price * 1_000_000.0) as u64;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let mut ix_data = Vec::new();
+    let discriminator = anchor_lang::solana_program::hash::hash(b"global:close_position");
+    ix_data.extend_from_slice(&discriminator.to_bytes()[..8]);
+    ix_data.extend_from_slice(&price_scaled.to_le_bytes());
+    ix_data.extend_from_slice(&now.to_le_bytes());
+    ix_data.push(close_reason);
+
+    let token_program = spl_token::id();
+
+    let accounts = vec![
+        AccountMeta::new(agent_pda, false),
+        AccountMeta::new(user_pda, false),
+        AccountMeta::new(position_pda, false),
+        AccountMeta::new(vault_pubkey, false),
+        AccountMeta::new(payer.pubkey(), true),
+        AccountMeta::new_readonly(token_program, false),
+    ];
+
+    let ix = Instruction {
+        program_id: *program_id,
+        accounts,
+        data: ix_data,
+    };
+
+    let recent_blockhash = client.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[payer],
+        recent_blockhash,
+    );
+
+    let sig = client.send_and_confirm_transaction(&tx)?;
+    display::print_success(&format!(
+        "Position #{} closed @ {}. Tx: {}",
+        position_id,
+        display::format_price(price_scaled),
+        sig,
+    ));
+
+    Ok(())
+}
+
+/// Deposit tokens into the user's trading account.
+pub fn execute_deposit(
+    rpc_url: &str,
+    program_id: &Pubkey,
+    keypair: &Keypair,
+    authority: &Pubkey,
+    amount: f64,
+) -> Result<()> {
+    let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+    let payer = keypair;
+
+    let (agent_pda, _) = derive_agent_pda(program_id, authority);
+    let (user_pda, _) = derive_user_pda(program_id, &agent_pda, &payer.pubkey());
+
+    let agent_data = client.get_account_data(&agent_pda)?;
+    let vault_offset = 8 + 1 + 32 + 32;
+    let vault_pubkey = Pubkey::try_from(&agent_data[vault_offset..vault_offset + 32])?;
+
+    let quote_mint_offset = 8 + 1 + 32;
+    let quote_mint = Pubkey::try_from(&agent_data[quote_mint_offset..quote_mint_offset + 32])?;
+
+    let user_ata = spl_associated_token_account::get_associated_token_address(
+        &payer.pubkey(),
+        &quote_mint,
+    );
+
+    let amount_lamports = (amount * 1_000_000.0) as u64;
+
+    let mut ix_data = Vec::new();
+    let discriminator = anchor_lang::solana_program::hash::hash(b"global:deposit");
+    ix_data.extend_from_slice(&discriminator.to_bytes()[..8]);
+    ix_data.extend_from_slice(&amount_lamports.to_le_bytes());
+
+    let token_program = spl_token::id();
+
+    let accounts = vec![
+        AccountMeta::new(agent_pda, false),
+        AccountMeta::new(user_pda, false),
+        AccountMeta::new(vault_pubkey, false),
+        AccountMeta::new(user_ata, false),
+        AccountMeta::new(payer.pubkey(), true),
+        AccountMeta::new_readonly(token_program, false),
+    ];
+
+    let ix = Instruction {
+        program_id: *program_id,
+        accounts,
+        data: ix_data,
+    };
+
+    let recent_blockhash = client.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[payer],
+        recent_blockhash,
+    );
+
+    let sig = client.send_and_confirm_transaction(&tx)?;
+
+    // Fetch updated balance
+    let updated_user_data = client.get_account_data(&user_pda)?;
+    let balance_offset = 8 + 1 + 32 + 32;
+    let new_balance = u64::from_le_bytes(
+        updated_user_data[balance_offset..balance_offset + 8]
+            .try_into()
+            .unwrap_or([0; 8]),
+    );
+
+    display::display_transfer_confirmation("Deposit", amount_lamports, new_balance, &sig.to_string());
+
+    Ok(())
+}
+
+/// Withdraw tokens from the user's trading account.
+pub fn execute_withdraw(
+    rpc_url: &str,
+    program_id: &Pubkey,
+    keypair: &Keypair,
+    authority: &Pubkey,
+    amount: Option<f64>,
+) -> Result<()> {
+    let client = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+    let payer = keypair;
+
+    let (agent_pda, _) = derive_agent_pda(program_id, authority);
+    let (user_pda, _) = derive_user_pda(program_id, &agent_pda, &payer.pubkey());
+
+    let agent_data = client.get_account_data(&agent_pda)?;
+    let vault_offset = 8 + 1 + 32 + 32;
+    let vault_pubkey = Pubkey::try_from(&agent_data[vault_offset..vault_offset + 32])?;
+
+    let quote_mint_offset = 8 + 1 + 32;
+    let quote_mint = Pubkey::try_from(&agent_data[quote_mint_offset..quote_mint_offset + 32])?;
+
+    let user_ata = spl_associated_token_account::get_associated_token_address(
+        &payer.pubkey(),
+        &quote_mint,
+    );
+
+    let amount_lamports = match amount {
+        Some(a) => (a * 1_000_000.0) as u64,
+        None => u64::MAX, // signals "withdraw all"
+    };
+
+    let mut ix_data = Vec::new();
+    let discriminator = anchor_lang::solana_program::hash::hash(b"global:withdraw");
+    ix_data.extend_from_slice(&discriminator.to_bytes()[..8]);
+    ix_data.extend_from_slice(&amount_lamports.to_le_bytes());
+
+    let token_program = spl_token::id();
+
+    let accounts = vec![
+        AccountMeta::new(agent_pda, false),
+        AccountMeta::new(user_pda, false),
+        AccountMeta::new(vault_pubkey, false),
+        AccountMeta::new(user_ata, false),
+        AccountMeta::new(payer.pubkey(), true),
+        AccountMeta::new_readonly(token_program, false),
+    ];
+
+    let ix = Instruction {
+        program_id: *program_id,
+        accounts,
+        data: ix_data,
+    };
+
+    let recent_blockhash = client.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[payer],
+        recent_blockhash,
+    );
+
+    let sig = client.send_and_confirm_transaction(&tx)?;
+
+    let updated_user_data = client.get_account_data(&user_pda)?;
+    let balance_offset = 8 + 1 + 32 + 32;
+    let new_balance = u64::from_le_bytes(
+        updated_user_data[balance_offset..balance_offset + 8]
+            .try_into()
+            .unwrap_or([0; 8]),
+    );
+
+    let display_amount = if amount_lamports == u64::MAX {
+        0 // will show "all" effectively via balance diff
+    } else {
+        amount_lamports
+    };
+
+    display::display_transfer_confirmation("Withdrawal", display_amount, new_balance, &sig.to_string());
+
+    Ok(())
+}
