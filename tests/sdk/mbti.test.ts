@@ -111,3 +111,176 @@ describe('MBTI Strategy Parameters', () => {
     beforeAll(() => {
       params = getStrategyParams(MBTIType.ISTJ);
     });
+
+    it('should have low risk tolerance for disciplined approach', () => {
+      expect(params.riskTolerance).toBeLessThanOrEqual(0.3);
+    });
+
+    it('should have tight stop-loss', () => {
+      expect(params.stopLossPct).toBeLessThanOrEqual(0.04);
+    });
+
+    it('should have very low entry aggression (maximum confirmation)', () => {
+      expect(params.entryAggression).toBeLessThanOrEqual(0.2);
+    });
+
+    it('should weight classic indicators (EMA, MACD, RSI)', () => {
+      const classicWeight =
+        (params.indicatorWeights.ema_cross || 0) +
+        (params.indicatorWeights.macd || 0) +
+        (params.indicatorWeights.rsi || 0);
+      expect(classicWeight).toBeGreaterThanOrEqual(0.5);
+    });
+  });
+
+  describe('ESTP strategy', () => {
+    let params: MBTIStrategy;
+
+    beforeAll(() => {
+      params = getStrategyParams(MBTIType.ESTP);
+    });
+
+    it('should have highest risk tolerance', () => {
+      expect(params.riskTolerance).toBeGreaterThanOrEqual(0.85);
+    });
+
+    it('should have largest max position size', () => {
+      expect(params.maxPositionPct).toBeGreaterThanOrEqual(0.35);
+    });
+
+    it('should have highest entry aggression', () => {
+      expect(params.entryAggression).toBeGreaterThanOrEqual(0.9);
+    });
+
+    it('should have short rebalance period', () => {
+      expect(params.rebalanceHours).toBeLessThanOrEqual(8);
+    });
+
+    it('should weight momentum and volume heavily', () => {
+      expect(params.indicatorWeights.momentum).toBeGreaterThanOrEqual(0.2);
+      expect(params.indicatorWeights.volume_spike).toBeGreaterThanOrEqual(0.2);
+    });
+  });
+
+  describe('ISFJ strategy', () => {
+    let params: MBTIStrategy;
+
+    beforeAll(() => {
+      params = getStrategyParams(MBTIType.ISFJ);
+    });
+
+    it('should have lowest risk tolerance', () => {
+      expect(params.riskTolerance).toBeLessThanOrEqual(0.2);
+    });
+
+    it('should have tightest stop-loss', () => {
+      expect(params.stopLossPct).toBeLessThanOrEqual(0.03);
+    });
+
+    it('should have smallest max position', () => {
+      expect(params.maxPositionPct).toBeLessThanOrEqual(0.12);
+    });
+
+    it('should have lowest entry aggression', () => {
+      expect(params.entryAggression).toBeLessThanOrEqual(0.1);
+    });
+  });
+
+  describe('validateParams', () => {
+    it('should accept valid parameters', () => {
+      const params: MBTIStrategy = {
+        riskTolerance: 0.5,
+        maxPositionPct: 0.2,
+        stopLossPct: 0.05,
+        takeProfitPct: 0.15,
+        rebalanceHours: 24,
+        entryAggression: 0.5,
+        indicatorWeights: { rsi: 0.5, macd: 0.5 },
+      };
+      expect(validateParams(params)).toBe(true);
+    });
+
+    it('should reject risk tolerance out of range', () => {
+      const params: MBTIStrategy = {
+        riskTolerance: 1.5,
+        maxPositionPct: 0.2,
+        stopLossPct: 0.05,
+        takeProfitPct: 0.15,
+        rebalanceHours: 24,
+        entryAggression: 0.5,
+        indicatorWeights: { rsi: 1.0 },
+      };
+      expect(validateParams(params)).toBe(false);
+    });
+
+    it('should reject indicator weights that do not sum to 1.0', () => {
+      const params: MBTIStrategy = {
+        riskTolerance: 0.5,
+        maxPositionPct: 0.2,
+        stopLossPct: 0.05,
+        takeProfitPct: 0.15,
+        rebalanceHours: 24,
+        entryAggression: 0.5,
+        indicatorWeights: { rsi: 0.3, macd: 0.3 }, // sums to 0.6
+      };
+      expect(validateParams(params)).toBe(false);
+    });
+
+    it('should reject negative stop-loss', () => {
+      const params: MBTIStrategy = {
+        riskTolerance: 0.5,
+        maxPositionPct: 0.2,
+        stopLossPct: -0.05,
+        takeProfitPct: 0.15,
+        rebalanceHours: 24,
+        entryAggression: 0.5,
+        indicatorWeights: { rsi: 1.0 },
+      };
+      expect(validateParams(params)).toBe(false);
+    });
+
+    it('should reject zero rebalance hours', () => {
+      const params: MBTIStrategy = {
+        riskTolerance: 0.5,
+        maxPositionPct: 0.2,
+        stopLossPct: 0.05,
+        takeProfitPct: 0.15,
+        rebalanceHours: 0,
+        entryAggression: 0.5,
+        indicatorWeights: { rsi: 1.0 },
+      };
+      expect(validateParams(params)).toBe(false);
+    });
+  });
+
+  describe('getAllStrategies', () => {
+    it('should return all 16 strategies', () => {
+      const strategies = getAllStrategies();
+      expect(Object.keys(strategies).length).toBe(16);
+    });
+
+    it('should have valid params for every strategy', () => {
+      const strategies = getAllStrategies();
+      for (const [type, params] of Object.entries(strategies)) {
+        expect(validateParams(params)).toBe(true);
+      }
+    });
+  });
+
+  describe('risk ordering', () => {
+    it('should order ISFJ < ISTJ < INTP < INTJ < ENTJ < ESTP by risk', () => {
+      const isfj = getStrategyParams(MBTIType.ISFJ);
+      const istj = getStrategyParams(MBTIType.ISTJ);
+      const intp = getStrategyParams(MBTIType.INTP);
+      const intj = getStrategyParams(MBTIType.INTJ);
+      const entj = getStrategyParams(MBTIType.ENTJ);
+      const estp = getStrategyParams(MBTIType.ESTP);
+
+      expect(isfj.riskTolerance).toBeLessThan(istj.riskTolerance);
+      expect(istj.riskTolerance).toBeLessThan(intp.riskTolerance);
+      expect(intp.riskTolerance).toBeLessThan(intj.riskTolerance);
+      expect(intj.riskTolerance).toBeLessThan(entj.riskTolerance);
+      expect(entj.riskTolerance).toBeLessThan(estp.riskTolerance);
+    });
+  });
+});
