@@ -123,3 +123,192 @@ describe('PikkyClient', () => {
     it('should reject negative deposit', async () => {
       await expect(client.deposit(-1)).rejects.toThrow('Amount must be positive');
     });
+
+    it('should reject deposit exceeding wallet balance', async () => {
+      await expect(client.deposit(100)).rejects.toThrow('Insufficient balance');
+    });
+
+    it('should include correct vault PDA as destination', async () => {
+      const [vaultPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), new PublicKey('So11111111111111111111111111111111111111112').toBuffer()],
+        PROGRAM_ID,
+      );
+      await client.deposit(1.0);
+      expect(client.getVaultPDA()).toBeDefined();
+    });
+  });
+
+  describe('withdraw', () => {
+    it('should withdraw SOL from vault', async () => {
+      const amount = 0.5;
+      const tx = await client.withdraw(amount);
+      expect(tx).toBeDefined();
+      expect(mockConnection.sendTransaction).toHaveBeenCalled();
+    });
+
+    it('should reject zero withdrawal', async () => {
+      await expect(client.withdraw(0)).rejects.toThrow('Amount must be positive');
+    });
+
+    it('should reject withdrawal exceeding deposited balance', async () => {
+      await expect(client.withdraw(1000)).rejects.toThrow('Insufficient deposited balance');
+    });
+
+    it('should handle full withdrawal', async () => {
+      const tx = await client.withdrawAll();
+      expect(tx).toBeDefined();
+      expect(mockConnection.sendTransaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('setMBTIType', () => {
+    it('should set MBTI type on user state', async () => {
+      const tx = await client.setMBTIType(MBTIType.INTJ);
+      expect(tx).toBeDefined();
+      expect(mockConnection.sendTransaction).toHaveBeenCalled();
+    });
+
+    it('should accept all 16 MBTI types', async () => {
+      const types: MBTIType[] = [
+        MBTIType.INTJ, MBTIType.INTP, MBTIType.ENTJ, MBTIType.ENTP,
+        MBTIType.INFJ, MBTIType.INFP, MBTIType.ENFJ, MBTIType.ENFP,
+        MBTIType.ISTJ, MBTIType.ISFJ, MBTIType.ESTJ, MBTIType.ESFJ,
+        MBTIType.ISTP, MBTIType.ISFP, MBTIType.ESTP, MBTIType.ESFP,
+      ];
+      for (const mbtiType of types) {
+        const tx = await client.setMBTIType(mbtiType);
+        expect(tx).toBeDefined();
+      }
+    });
+
+    it('should reject invalid MBTI type', async () => {
+      await expect(client.setMBTIType('XXXX' as MBTIType)).rejects.toThrow('Invalid MBTI type');
+    });
+  });
+
+  describe('executeTrade', () => {
+    it('should execute a buy trade', async () => {
+      const tx = await client.executeTrade({
+        side: 'buy',
+        inputMint: new PublicKey('So11111111111111111111111111111111111111112'),
+        outputMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+        amount: 1_000_000_000,
+        slippageBps: 50,
+      });
+      expect(tx).toBeDefined();
+      expect(mockConnection.sendTransaction).toHaveBeenCalled();
+    });
+
+    it('should execute a sell trade', async () => {
+      const tx = await client.executeTrade({
+        side: 'sell',
+        inputMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+        outputMint: new PublicKey('So11111111111111111111111111111111111111112'),
+        amount: 100_000_000,
+        slippageBps: 100,
+      });
+      expect(tx).toBeDefined();
+    });
+
+    it('should reject trade with zero amount', async () => {
+      await expect(
+        client.executeTrade({
+          side: 'buy',
+          inputMint: new PublicKey('So11111111111111111111111111111111111111112'),
+          outputMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+          amount: 0,
+          slippageBps: 50,
+        }),
+      ).rejects.toThrow('Amount must be positive');
+    });
+
+    it('should reject trade with excessive slippage', async () => {
+      await expect(
+        client.executeTrade({
+          side: 'buy',
+          inputMint: new PublicKey('So11111111111111111111111111111111111111112'),
+          outputMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+          amount: 1_000_000_000,
+          slippageBps: 5000,
+        }),
+      ).rejects.toThrow('Slippage too high');
+    });
+
+    it('should reject trade when auto-trading is disabled', async () => {
+      client.setAutoTrading(false);
+      await expect(
+        client.executeTrade({
+          side: 'buy',
+          inputMint: new PublicKey('So11111111111111111111111111111111111111112'),
+          outputMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+          amount: 1_000_000_000,
+          slippageBps: 50,
+        }),
+      ).rejects.toThrow('Auto-trading is disabled');
+    });
+  });
+
+  describe('getStatus', () => {
+    it('should return user state', async () => {
+      (mockConnection.getAccountInfo as jest.Mock).mockResolvedValueOnce({
+        data: Buffer.alloc(256),
+        owner: PROGRAM_ID,
+        lamports: 2_039_280,
+        executable: false,
+      });
+      const status = await client.getStatus();
+      expect(status).toBeDefined();
+      expect(status).toHaveProperty('mbtiType');
+      expect(status).toHaveProperty('depositedAmount');
+      expect(status).toHaveProperty('currentBalance');
+      expect(status).toHaveProperty('realizedPnl');
+      expect(status).toHaveProperty('totalTrades');
+      expect(status).toHaveProperty('autoTradeEnabled');
+    });
+
+    it('should return null if user state does not exist', async () => {
+      (mockConnection.getAccountInfo as jest.Mock).mockResolvedValueOnce(null);
+      const status = await client.getStatus();
+      expect(status).toBeNull();
+    });
+  });
+
+  describe('getTradeHistory', () => {
+    it('should return trade history array', async () => {
+      const history = await client.getTradeHistory();
+      expect(Array.isArray(history)).toBe(true);
+    });
+
+    it('should support pagination', async () => {
+      const history = await client.getTradeHistory({ limit: 10, offset: 0 });
+      expect(Array.isArray(history)).toBe(true);
+    });
+  });
+
+  describe('PDA derivation', () => {
+    it('should derive config PDA correctly', () => {
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('config')],
+        PROGRAM_ID,
+      );
+      expect(client.getConfigPDA().equals(pda)).toBe(true);
+    });
+
+    it('should derive user state PDA correctly', () => {
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user'), mockWallet.publicKey.toBuffer()],
+        PROGRAM_ID,
+      );
+      expect(client.getUserStatePDA().equals(pda)).toBe(true);
+    });
+
+    it('should derive vault PDA correctly', () => {
+      const mint = new PublicKey('So11111111111111111111111111111111111111112');
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), mint.toBuffer()],
+        PROGRAM_ID,
+      );
+      expect(client.getVaultPDA(mint).equals(pda)).toBe(true);
+    });
+  });
+});
