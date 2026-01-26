@@ -309,3 +309,4 @@ pub fn display_transfer_confirmation(action: &str, amount: u64, new_balance: u64
     print_kv("Transaction", tx_sig);
     println!();
 }
+
