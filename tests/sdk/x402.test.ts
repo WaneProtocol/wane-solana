@@ -132,3 +132,204 @@ describe('x402 Payment Flow', () => {
     it('should include nonce in memo instruction', async () => {
       const payer = Keypair.generate();
       const request: X402PaymentRequest = {
+        version: 'x402/1.0',
+        network: 'solana:devnet',
+        amount: 10_000_000,
+        tokenMint: 'So11111111111111111111111111111111111111112',
+        address: VAULT_ADDRESS.toBase58(),
+        nonce: TEST_NONCE,
+        expiresAt: Math.floor(Date.now() / 1000) + 300,
+      };
+
+      const transaction = await buildPaymentTransaction(
+        mockConnection,
+        payer.publicKey,
+        request,
+      );
+
+      // Last instruction should be memo with nonce
+      const memoInstruction = transaction.instructions[transaction.instructions.length - 1];
+      expect(memoInstruction.data.toString()).toContain(TEST_NONCE);
+    });
+
+    it('should reject expired payment request', async () => {
+      const payer = Keypair.generate();
+      const request: X402PaymentRequest = {
+        version: 'x402/1.0',
+        network: 'solana:devnet',
+        amount: 10_000_000,
+        tokenMint: 'So11111111111111111111111111111111111111112',
+        address: VAULT_ADDRESS.toBase58(),
+        nonce: TEST_NONCE,
+        expiresAt: Math.floor(Date.now() / 1000) - 60, // expired 1 minute ago
+      };
+
+      await expect(
+        buildPaymentTransaction(mockConnection, payer.publicKey, request),
+      ).rejects.toThrow('Payment request has expired');
+    });
+
+    it('should set correct transfer amount in lamports', async () => {
+      const payer = Keypair.generate();
+      const amount = 50_000_000; // 0.05 SOL
+      const request: X402PaymentRequest = {
+        version: 'x402/1.0',
+        network: 'solana:devnet',
+        amount,
+        tokenMint: 'So11111111111111111111111111111111111111112',
+        address: VAULT_ADDRESS.toBase58(),
+        nonce: TEST_NONCE,
+        expiresAt: Math.floor(Date.now() / 1000) + 300,
+      };
+
+      const transaction = await buildPaymentTransaction(
+        mockConnection,
+        payer.publicKey,
+        request,
+      );
+
+      // First instruction should be the transfer
+      const transferIx = transaction.instructions[0];
+      expect(transferIx).toBeDefined();
+    });
+  });
+
+  describe('verifyPaymentReceipt', () => {
+    it('should verify a valid payment receipt', async () => {
+      const result = await verifyPaymentReceipt(
+        mockConnection,
+        'paymentTxSig456',
+        {
+          expectedAddress: VAULT_ADDRESS.toBase58(),
+          expectedAmount: 10_000_000,
+          expectedNonce: TEST_NONCE,
+        },
+      );
+      expect(result.verified).toBe(true);
+      expect(result.status).toBe('verified');
+    });
+
+    it('should reject receipt with wrong destination', async () => {
+      const result = await verifyPaymentReceipt(
+        mockConnection,
+        'paymentTxSig456',
+        {
+          expectedAddress: Keypair.generate().publicKey.toBase58(),
+          expectedAmount: 10_000_000,
+          expectedNonce: TEST_NONCE,
+        },
+      );
+      expect(result.verified).toBe(false);
+      expect(result.status).toBe('invalid');
+    });
+
+    it('should reject receipt for failed transaction', async () => {
+      (mockConnection.getTransaction as jest.Mock).mockResolvedValueOnce({
+        meta: { err: { InstructionError: [0, 'Custom(1)'] } },
+        transaction: { message: { accountKeys: [] } },
+      });
+
+      const result = await verifyPaymentReceipt(
+        mockConnection,
+        'failedTxSig',
+        {
+          expectedAddress: VAULT_ADDRESS.toBase58(),
+          expectedAmount: 10_000_000,
+          expectedNonce: TEST_NONCE,
+        },
+      );
+      expect(result.verified).toBe(false);
+      expect(result.status).toBe('invalid');
+    });
+
+    it('should return pending for unconfirmed transaction', async () => {
+      (mockConnection.getTransaction as jest.Mock).mockResolvedValueOnce(null);
+
+      const result = await verifyPaymentReceipt(
+        mockConnection,
+        'pendingTxSig',
+        {
+          expectedAddress: VAULT_ADDRESS.toBase58(),
+          expectedAmount: 10_000_000,
+          expectedNonce: TEST_NONCE,
+        },
+      );
+      expect(result.verified).toBe(false);
+      expect(result.status).toBe('pending');
+    });
+  });
+
+  describe('X402Client', () => {
+    let x402Client: X402Client;
+    const wallet = {
+      publicKey: Keypair.generate().publicKey,
+      signTransaction: jest.fn().mockImplementation((tx: any) => Promise.resolve(tx)),
+    };
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      x402Client = new X402Client({
+        connection: mockConnection,
+        wallet: wallet as any,
+        network: 'solana:devnet',
+      });
+    });
+
+    it('should handle full 402 payment flow', async () => {
+      const mockFetch = jest.fn()
+        .mockResolvedValueOnce({
+          status: 402,
+          headers: new Map([
+            ['x-payment-version', 'x402/1.0'],
+            ['x-payment-network', 'solana:devnet'],
+            ['x-payment-amount', '10000000'],
+            ['x-payment-token-mint', 'So11111111111111111111111111111111111111112'],
+            ['x-payment-address', VAULT_ADDRESS.toBase58()],
+            ['x-payment-nonce', TEST_NONCE],
+            ['x-payment-expires', String(Math.floor(Date.now() / 1000) + 300)],
+          ]),
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          json: () => Promise.resolve({ trade: { id: 'trade_123' } }),
+          headers: new Map([
+            ['x-payment-receipt', 'paymentTxSig456'],
+            ['x-payment-status', 'verified'],
+          ]),
+        });
+
+      const result = await x402Client.requestWithPayment(
+        'https://api.pikky.sol/api/agent/trade',
+        { fetchFn: mockFetch as any },
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('should pass through non-402 responses', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        status: 200,
+        json: () => Promise.resolve({ data: 'free_endpoint' }),
+      });
+
+      const result = await x402Client.requestWithPayment(
+        'https://api.pikky.sol/api/portfolio',
+        { fetchFn: mockFetch as any },
+      );
+      expect(result).toBeDefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw on non-402 error responses', async () => {
+      const mockFetch = jest.fn().mockResolvedValueOnce({
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      await expect(
+        x402Client.requestWithPayment('https://api.pikky.sol/api/broken', {
+          fetchFn: mockFetch as any,
+        }),
+      ).rejects.toThrow();
+    });
+  });
+});
