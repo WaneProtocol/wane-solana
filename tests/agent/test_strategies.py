@@ -385,3 +385,4 @@ class TestStrategyRiskOrdering:
             strategy = StrategyFactory.create(mbti_type)
             total = sum(strategy.indicator_weights.values())
             assert total == pytest.approx(1.0, abs=0.01)
+
