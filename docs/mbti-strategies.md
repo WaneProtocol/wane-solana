@@ -189,3 +189,344 @@ Social volume declining (crowd has given up). Enters against the crowd.
 - Take-profit: 101.40 (+30%)
 
 ---
+
+## Diplomats (NF)
+
+### INFJ -- The Intuitive Visionary
+
+**Personality**: Combines intuition with conviction. Sees the big picture and
+trusts gut feeling backed by research. Patient and disciplined.
+
+**Trading Style**: Thematic investing with long hold periods. Identifies macro
+narratives (DeFi summer, AI tokens) and builds positions early. Low frequency.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.50,
+  "max_position_pct": 0.25,
+  "stop_loss_pct": 0.12,
+  "take_profit_pct": 0.40,
+  "rebalance_hours": 168,
+  "entry_aggression": 0.3,
+  "indicator_weights": {
+    "tvl_growth": 0.25,
+    "developer_activity": 0.25,
+    "ema_50": 0.20,
+    "narrative_score": 0.20,
+    "whale_accumulation": 0.10
+  }
+}
+```
+
+**Entry Signal**: Rising developer activity and TVL growth in a sector, price
+above 50 EMA, whale wallets accumulating. Enters gradually over days.
+
+**Exit Signal**: Narrative exhaustion (declining developer activity) or fundamental
+thesis breaks.
+
+**Example Trade**:
+- AI token sector TVL up 40%, dev commits up 3x, price above 50 EMA
+- Entry: DCA over 5 days
+- Position: 25% of portfolio
+- Stop-loss: -12% from average entry
+- Take-profit: +40% from average entry
+
+---
+
+### INFP -- The Idealistic Holder
+
+**Personality**: Values-driven, drawn to projects with a mission. Emotional
+attachment to holdings. Loyal to convictions but can hold losers too long.
+
+**Trading Style**: Buy-and-hold with conviction-based entries. Researches project
+fundamentals deeply. Rarely sells. Adds on dips for projects they believe in.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.35,
+  "max_position_pct": 0.20,
+  "stop_loss_pct": 0.15,
+  "take_profit_pct": 0.50,
+  "rebalance_hours": 168,
+  "entry_aggression": 0.2,
+  "indicator_weights": {
+    "fundamental_score": 0.35,
+    "community_health": 0.25,
+    "ema_200": 0.15,
+    "token_distribution": 0.15,
+    "rsi_weekly": 0.10
+  }
+}
+```
+
+**Entry Signal**: Strong fundamentals with healthy community metrics. Price near
+200 EMA support. Weekly RSI not overbought. Enters slowly.
+
+**Exit Signal**: Fundamental deterioration (team departure, security incident) or
+extreme overvaluation. Wide stop-loss reflects conviction-based holding.
+
+**Example Trade**:
+- Project with 95/100 fundamental score, active community, price at 200 EMA
+- Entry: DCA over 2 weeks
+- Position: 20% of portfolio
+- Stop-loss: -15% from average entry
+- Take-profit: +50% from average entry
+
+---
+
+### ENFJ -- The Charismatic Leader
+
+**Personality**: Reads market sentiment naturally. Understands crowd psychology.
+Confident in trending markets, cautious at extremes. Inspires others.
+
+**Trading Style**: Sentiment-driven trend following. Rides waves of enthusiasm
+but exits before the crowd. Uses social metrics as primary indicators.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.60,
+  "max_position_pct": 0.25,
+  "stop_loss_pct": 0.07,
+  "take_profit_pct": 0.20,
+  "rebalance_hours": 48,
+  "entry_aggression": 0.6,
+  "indicator_weights": {
+    "social_sentiment": 0.30,
+    "trending_score": 0.25,
+    "volume_momentum": 0.20,
+    "ema_20": 0.15,
+    "whale_tracking": 0.10
+  }
+}
+```
+
+**Entry Signal**: Rising social sentiment with price above 20 EMA. Volume
+momentum increasing. Whale wallets adding positions.
+
+**Exit Signal**: Social sentiment peaks (leading indicator), volume declining,
+or smart money exiting.
+
+**Example Trade**:
+- Token trending on social with sentiment +0.7, price above 20 EMA
+- Entry: 42.00 (enter with trend)
+- Position: 25% of portfolio
+- Stop-loss: 39.06 (-7%)
+- Take-profit: 50.40 (+20%)
+
+---
+
+### ENFP -- The Enthusiastic Explorer
+
+**Personality**: Energetic and opportunity-driven. Jumps on new ideas with
+enthusiasm. Can spread too thin across many positions. Optimistic bias.
+
+**Trading Style**: Momentum breakout with narrative chasing. Enters fast on
+momentum signals, diversifies across many small bets. Accepts high failure
+rate for occasional big wins.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.75,
+  "max_position_pct": 0.08,
+  "stop_loss_pct": 0.06,
+  "take_profit_pct": 0.20,
+  "rebalance_hours": 12,
+  "entry_aggression": 0.9,
+  "indicator_weights": {
+    "momentum": 0.30,
+    "new_listing_score": 0.25,
+    "social_buzz": 0.20,
+    "volume_spike": 0.15,
+    "rsi": 0.10
+  }
+}
+```
+
+**Entry Signal**: Momentum breakout with social buzz. New narratives or listings.
+Volume spike above 3x average. Enters almost immediately.
+
+**Exit Signal**: Momentum fades (RSI divergence) or stop-loss hit. Quick to move
+to next opportunity.
+
+**Example Trade**:
+- New listing with 5x volume, social buzz score 0.9
+- Entry: Immediate on signal
+- Position: 8% of portfolio (many small bets)
+- Stop-loss: -6%
+- Take-profit: +20%
+
+---
+
+## Sentinels (SJ)
+
+### ISTJ -- The Disciplined Guardian
+
+**Personality**: Methodical, reliable, and risk-averse. Follows rules without
+exception. Prefers proven strategies over innovation. Extremely consistent.
+
+**Trading Style**: Systematic trend following with strict rules. Uses only
+well-tested indicators. Never deviates from the plan. Low drawdown focus.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.25,
+  "max_position_pct": 0.15,
+  "stop_loss_pct": 0.03,
+  "take_profit_pct": 0.08,
+  "rebalance_hours": 24,
+  "entry_aggression": 0.1,
+  "indicator_weights": {
+    "ema_cross": 0.30,
+    "macd": 0.25,
+    "rsi": 0.20,
+    "atr": 0.15,
+    "volume": 0.10
+  }
+}
+```
+
+**Entry Signal**: 20/50 EMA golden cross with MACD confirmation and RSI between
+40-60. All three must confirm. No exceptions.
+
+**Exit Signal**: 20/50 EMA death cross or stop-loss. Never holds through a
+death cross regardless of other signals.
+
+**Example Trade**:
+- SOL 20 EMA crosses above 50 EMA, MACD bullish, RSI at 52
+- Entry: 100.00 (after all confirmations)
+- Position: 15% of portfolio
+- Stop-loss: 97.00 (-3%)
+- Take-profit: 108.00 (+8%)
+
+---
+
+### ISFJ -- The Protective Conservator
+
+**Personality**: Cautious and protective of capital. Prioritizes preservation
+over growth. Thorough researcher who needs high confidence before acting.
+
+**Trading Style**: Ultra-conservative with focus on capital preservation. Only
+trades blue-chip assets. Uses wide time frames. Minimal trading frequency.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.15,
+  "max_position_pct": 0.10,
+  "stop_loss_pct": 0.02,
+  "take_profit_pct": 0.05,
+  "rebalance_hours": 168,
+  "entry_aggression": 0.05,
+  "indicator_weights": {
+    "ema_200": 0.30,
+    "rsi_weekly": 0.25,
+    "support_level": 0.20,
+    "volume_trend": 0.15,
+    "volatility_low": 0.10
+  }
+}
+```
+
+**Entry Signal**: Price at strong support with weekly RSI oversold, above 200 EMA
+on monthly. Volatility must be below average. Maximum confirmation required.
+
+**Exit Signal**: Any sign of weakness -- price below 200 EMA weekly, or stop-loss.
+Exits early and asks questions later.
+
+**Example Trade**:
+- SOL at major support 90, weekly RSI 25, monthly above 200 EMA, low vol
+- Entry: 90.50 (maximum confirmation)
+- Position: 10% of portfolio
+- Stop-loss: 88.69 (-2%)
+- Take-profit: 95.03 (+5%)
+
+---
+
+### ESTJ -- The Efficient Manager
+
+**Personality**: Organized and decisive. Values efficiency and measurable results.
+Sets clear targets and executes methodically. Respects hierarchy and structure.
+
+**Trading Style**: Rule-based swing trading. Clear entry/exit rules with no
+discretion. Measures performance rigorously. Optimizes for risk-adjusted returns.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.45,
+  "max_position_pct": 0.20,
+  "stop_loss_pct": 0.04,
+  "take_profit_pct": 0.10,
+  "rebalance_hours": 48,
+  "entry_aggression": 0.4,
+  "indicator_weights": {
+    "pivot_points": 0.25,
+    "macd": 0.25,
+    "volume": 0.20,
+    "ema_50": 0.15,
+    "atr": 0.15
+  }
+}
+```
+
+**Entry Signal**: Price bounces off pivot support with MACD turning bullish.
+Volume above average. Price above 50 EMA.
+
+**Exit Signal**: Pivot resistance reached (take-profit) or stop-loss hit.
+Strict time-based exit if neither hit within 5 days.
+
+**Example Trade**:
+- SOL bounces off S1 pivot at 96, MACD turns up, volume 1.5x avg
+- Entry: 96.50
+- Position: 20% of portfolio
+- Stop-loss: 92.64 (-4%)
+- Take-profit: 106.15 (+10%)
+
+---
+
+### ESFJ -- The Community Trader
+
+**Personality**: Socially aware and consensus-driven. Pays attention to what
+others are doing. Harmonious approach to risk. Follows trusted leaders.
+
+**Trading Style**: Social copy-trading with safety filters. Follows whale
+wallets and influencer trades but applies conservative risk management.
+Consensus-based entry decisions.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.35,
+  "max_position_pct": 0.12,
+  "stop_loss_pct": 0.05,
+  "take_profit_pct": 0.10,
+  "rebalance_hours": 24,
+  "entry_aggression": 0.5,
+  "indicator_weights": {
+    "whale_activity": 0.30,
+    "social_consensus": 0.25,
+    "ema_20": 0.20,
+    "rsi": 0.15,
+    "volume": 0.10
+  }
+}
+```
+
+**Entry Signal**: Multiple whale wallets buying the same asset. Social consensus
+is bullish. Price above 20 EMA with RSI not overbought.
+
+**Exit Signal**: Whales start selling, or social consensus shifts bearish.
+
+**Example Trade**:
+- 5+ whale wallets accumulating token, bullish social consensus
+- Entry: Follow whale average entry price
+- Position: 12% of portfolio
+- Stop-loss: -5%
+- Take-profit: +10%
+
+---
