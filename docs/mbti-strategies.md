@@ -530,3 +530,214 @@ is bullish. Price above 20 EMA with RSI not overbought.
 - Take-profit: +10%
 
 ---
+
+## Explorers (SP)
+
+### ISTP -- The Tactical Mechanic
+
+**Personality**: Cool under pressure. Analytical and hands-on. Reacts quickly to
+changing conditions. Independent thinker who trusts their own analysis.
+
+**Trading Style**: Scalping and short-term technical trading. Reads price action
+and order flow. Rapid entries and exits. Thrives in volatile markets.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.55,
+  "max_position_pct": 0.20,
+  "stop_loss_pct": 0.02,
+  "take_profit_pct": 0.04,
+  "rebalance_hours": 4,
+  "entry_aggression": 0.7,
+  "indicator_weights": {
+    "order_flow": 0.30,
+    "price_action": 0.25,
+    "vwap": 0.20,
+    "rsi_5min": 0.15,
+    "spread": 0.10
+  }
+}
+```
+
+**Entry Signal**: Order flow imbalance with price at VWAP support/resistance.
+5-minute RSI at extremes. Tight spread indicating liquidity.
+
+**Exit Signal**: Quick take-profit at 2R or stop-loss. No holding overnight.
+
+**Example Trade**:
+- SOL bid/ask imbalance 3:1 at VWAP 100.00, 5m RSI at 22
+- Entry: 100.10
+- Position: 20% of portfolio
+- Stop-loss: 98.10 (-2%)
+- Take-profit: 104.10 (+4%)
+
+---
+
+### ISFP -- The Artistic Trader
+
+**Personality**: Quietly observant with strong aesthetic sense. Sees patterns
+others miss. Flexible and adaptable but avoids conflict and high stress.
+
+**Trading Style**: Pattern recognition on charts. Identifies harmonic patterns,
+head-and-shoulders, wedges. Prefers clean setups with clear invalidation levels.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.30,
+  "max_position_pct": 0.12,
+  "stop_loss_pct": 0.03,
+  "take_profit_pct": 0.09,
+  "rebalance_hours": 24,
+  "entry_aggression": 0.3,
+  "indicator_weights": {
+    "chart_pattern": 0.35,
+    "fibonacci": 0.25,
+    "rsi": 0.15,
+    "volume_confirm": 0.15,
+    "support_resistance": 0.10
+  }
+}
+```
+
+**Entry Signal**: Clean chart pattern completion (e.g., bull flag breakout) at
+Fibonacci level with volume confirmation.
+
+**Exit Signal**: Pattern target reached (measured move) or pattern invalidation.
+
+**Example Trade**:
+- SOL forms bull flag at 61.8% Fibonacci retracement, breakout with volume
+- Entry: At breakout with volume confirmation
+- Position: 12% of portfolio
+- Stop-loss: Below flag low (-3%)
+- Take-profit: Measured move target (+9%)
+
+---
+
+### ESTP -- The Bold Opportunist
+
+**Personality**: Action-first, thinks-later. Thrives on excitement and risk.
+Quick decision maker. Comfortable with large positions and volatility.
+
+**Trading Style**: Aggressive momentum trading. Largest position sizes, fastest
+entries. Accepts high drawdowns for high returns. Trades the most volatile assets.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.90,
+  "max_position_pct": 0.40,
+  "stop_loss_pct": 0.06,
+  "take_profit_pct": 0.15,
+  "rebalance_hours": 6,
+  "entry_aggression": 0.95,
+  "indicator_weights": {
+    "momentum": 0.30,
+    "volume_spike": 0.25,
+    "volatility_high": 0.20,
+    "rsi": 0.15,
+    "price_velocity": 0.10
+  }
+}
+```
+
+**Entry Signal**: Extreme momentum with volume explosion. Does not wait for
+confirmation. Enters on first sign of breakout.
+
+**Exit Signal**: Trailing stop at 2x ATR or momentum exhaustion. Takes profits
+aggressively.
+
+**Example Trade**:
+- SOL gaps up 5% with 10x volume at market open
+- Entry: Immediate (within seconds)
+- Position: 40% of portfolio
+- Stop-loss: -6%
+- Take-profit: +15%
+
+---
+
+### ESFP -- The Energetic Performer
+
+**Personality**: Lives in the moment. Social and fun-loving. Follows trends and
+hype. Short attention span but great at riding waves while they last.
+
+**Trading Style**: Hype-driven trading with quick rotations. Follows social
+trends, enters meme coins and trending tokens. Short holding periods.
+Diversifies across many trending assets.
+
+**Parameters**:
+```json
+{
+  "risk_tolerance": 0.70,
+  "max_position_pct": 0.06,
+  "stop_loss_pct": 0.08,
+  "take_profit_pct": 0.25,
+  "rebalance_hours": 6,
+  "entry_aggression": 0.85,
+  "indicator_weights": {
+    "trending_score": 0.35,
+    "social_volume": 0.25,
+    "price_momentum": 0.20,
+    "new_pairs": 0.10,
+    "volume": 0.10
+  }
+}
+```
+
+**Entry Signal**: Token is trending on social platforms with rising volume. New
+pair with strong initial momentum. Enters fast, exits faster.
+
+**Exit Signal**: Trend fading (social volume declining) or next shiny opportunity
+appears. Very short holding period (hours to days).
+
+**Example Trade**:
+- New trending token with 100x social volume increase
+- Entry: Immediate on trend detection
+- Position: 6% of portfolio (many small bets)
+- Stop-loss: -8%
+- Take-profit: +25%
+
+---
+
+## Strategy Comparison Matrix
+
+| Type | Risk | Max Pos | Stop | Target | Rebal (h) | Style |
+|------|------|---------|------|--------|-----------|-------|
+| INTJ | 0.65 | 30% | 8% | 25% | 72 | Trend following |
+| INTP | 0.40 | 10% | 4% | 6% | 12 | Mean reversion |
+| ENTJ | 0.80 | 35% | 5% | 15% | 24 | Breakout |
+| ENTP | 0.70 | 15% | 10% | 30% | 48 | Contrarian |
+| INFJ | 0.50 | 25% | 12% | 40% | 168 | Thematic |
+| INFP | 0.35 | 20% | 15% | 50% | 168 | Buy and hold |
+| ENFJ | 0.60 | 25% | 7% | 20% | 48 | Sentiment trend |
+| ENFP | 0.75 | 8% | 6% | 20% | 12 | Momentum |
+| ISTJ | 0.25 | 15% | 3% | 8% | 24 | Systematic |
+| ISFJ | 0.15 | 10% | 2% | 5% | 168 | Conservative |
+| ESTJ | 0.45 | 20% | 4% | 10% | 48 | Swing trading |
+| ESFJ | 0.35 | 12% | 5% | 10% | 24 | Social copy |
+| ISTP | 0.55 | 20% | 2% | 4% | 4 | Scalping |
+| ISFP | 0.30 | 12% | 3% | 9% | 24 | Pattern trading |
+| ESTP | 0.90 | 40% | 6% | 15% | 6 | Aggressive momentum |
+| ESFP | 0.70 | 6% | 8% | 25% | 6 | Hype trading |
+
+## Risk-Return Profiles
+
+Sorted by risk tolerance (low to high):
+
+1. **ISFJ** (0.15) -- Capital preservation, minimal trading
+2. **ISTJ** (0.25) -- Disciplined rules, low drawdown
+3. **ISFP** (0.30) -- Pattern-based, moderate caution
+4. **INFP** (0.35) -- Conviction holding, wide stops
+5. **ESFJ** (0.35) -- Social consensus, safety filters
+6. **INTP** (0.40) -- Statistical edge, small positions
+7. **ESTJ** (0.45) -- Efficient rules, measured risk
+8. **INFJ** (0.50) -- Thematic conviction, patient
+9. **ISTP** (0.55) -- Tactical precision, tight stops
+10. **ENFJ** (0.60) -- Sentiment reading, crowd-aware
+11. **INTJ** (0.65) -- Strategic vision, large positions
+12. **ENTP** (0.70) -- Contrarian bets, diversified
+13. **ESFP** (0.70) -- Hype riding, many small bets
+14. **ENFP** (0.75) -- Momentum chasing, scattered
+15. **ENTJ** (0.80) -- Decisive breakouts, aggressive
+16. **ESTP** (0.90) -- Maximum aggression, highest risk
