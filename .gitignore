@@ -1,0 +1,30 @@
+# build artifacts
+.anchor
+target
+**/target
+dist
+**/dist
+test-ledger
+**/*.rs.bk
+*.so
+
+# deps
+node_modules
+.yarn
+
+# secrets / keys (defense in depth; keys live outside the repo)
+.env
+.env.*
+**/*-keypair.json
+**/id.json
+*.pem
+*.key
+
+# local ops scripts (contain machine-specific key paths, not for publishing)
+smoke.cjs
+mint_mainnet.cjs
+live_devnet_vault.cjs
+mainnet-token.json
+
+# os
+.DS_Store

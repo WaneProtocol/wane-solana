@@ -1,0 +1,27 @@
+# normalize line endings across platforms
+* text=auto eol=lf
+
+*.rs       text eol=lf
+*.ts       text eol=lf
+*.js       text eol=lf
+*.json     text eol=lf
+*.toml     text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.sh       text eol=lf
+*.ps1      text eol=crlf
+
+# binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.so   binary
+
+# linguist overrides: keep IDL and fixtures from polluting the language bar
+target/idl/*.json   linguist-generated
+sdk/dist/*          linguist-generated
+tests/fixtures/*    linguist-generated
+docs/*              linguist-documentation
