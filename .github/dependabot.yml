@@ -1,0 +1,79 @@
+version: 2
+
+updates:
+  # Rust / Cargo dependencies
+  - package-ecosystem: "cargo"
+    directory: "/programs"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "pikky-maintainers"
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "deps(rust):"
+    ignore:
+      - dependency-name: "solana-*"
+        update-types: ["version-update:semver-major"]
+
+  # TypeScript / npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/sdk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "pikky-maintainers"
+    labels:
+      - "dependencies"
+      - "typescript"
+    commit-message:
+      prefix: "deps(ts):"
+    groups:
+      solana:
+        patterns:
+          - "@solana/*"
+          - "@coral-xyz/*"
+      testing:
+        patterns:
+          - "jest"
+          - "@types/jest"
+          - "ts-jest"
+
+  # Python / pip dependencies
+  - package-ecosystem: "pip"
+    directory: "/agent"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "pikky-maintainers"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(py):"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci(deps):"
