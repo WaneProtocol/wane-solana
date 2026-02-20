@@ -1,0 +1,30 @@
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.4.1"
+edition = "2021"
+authors = ["Wane core"]
+license = "MIT"
+repository = "https://github.com/WaneProtocol/wane-solana"
+homepage = "https://wane.network"
+readme = "README.md"
+rust-version = "1.79"
+description = "Shared on-chain immune memory and non-custodial screening session wallet for AI agents on Solana"
+keywords = ["solana", "anchor", "ai-agent", "security", "web3"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
+
+[workspace.dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl = "0.31.1"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
