@@ -611,3 +611,4 @@ class TransactionBuilder:
 
 class TransactionBuildError(Exception):
     """Raised when transaction building fails."""
+
