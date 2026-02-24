@@ -1,0 +1,16 @@
+{
+  "name": "wane-solana-tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "tsx tests/e2e.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.98.4",
+    "solana-bankrun": "^0.4.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
