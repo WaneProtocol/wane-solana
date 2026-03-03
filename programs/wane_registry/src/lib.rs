@@ -75,3 +75,46 @@ pub mod wane_registry {
         a.challenger = Pubkey::default();
         a.challenge_bond = 0;
         a.bump = ctx.bumps.antibody;
+
+        emit!(AntibodyMinted { id: a.id, kind, subject, publisher: a.publisher });
+        Ok(())
+    }
+
+    /// Independently corroborate an existing antibody. The Corroboration marker
+    /// PDA enforces one-vote-per-account: init fails on a second attempt.
+    pub fn corroborate(ctx: Context<Corroborate>) -> Result<()> {
+        let a = &mut ctx.accounts.antibody;
+        require!(a.status == Status::Active as u8, WaneError::NotActive);
+        require!(
+            ctx.accounts.corroborator.key() != a.publisher,
+            WaneError::SelfCorroborate
+        );
+        a.corroborations = a.corroborations.checked_add(1).unwrap();
+        ctx.accounts.corroboration.bump = ctx.bumps.corroboration;
+        Ok(())
+    }
+
+    /// Seed protocol-owned genesis antibodies (stake = 0, trusted, enforce now).
+    pub fn seed_genesis(ctx: Context<SeedGenesis>, kind: u8, subject: [u8; 32]) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.genesis_open, WaneError::GenesisClosed);
+        require!(kind <= 3, WaneError::BadKind);
+        config.antibody_count = config.antibody_count.checked_add(1).unwrap();
+
+        let now = Clock::get()?.unix_timestamp;
+        let key = config.key();
+        let a = &mut ctx.accounts.antibody;
+        a.id = config.antibody_count;
+        a.kind = kind;
+        a.status = Status::Active as u8;
+        a.publisher = key; // protocol-owned
+        a.stake = 0; // genesis: trusted, enforces immediately
+        a.minted_ts = now;
+        a.corroborations = 0;
+        a.subject = subject;
+        a.evidence = [0u8; 32];
+        a.challenger = Pubkey::default();
+        a.challenge_bond = 0;
+        a.bump = ctx.bumps.antibody;
+        Ok(())
+    }
