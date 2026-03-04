@@ -118,3 +118,27 @@ pub mod wane_registry {
         a.bump = ctx.bumps.antibody;
         Ok(())
     }
+
+    /// Close the genesis window (governor only). After this, no more stake=0 seeds.
+    pub fn close_genesis(ctx: Context<GovernorOnly>) -> Result<()> {
+        ctx.accounts.config.genesis_open = false;
+        Ok(())
+    }
+
+    /// Challenge an active antibody as a false positive. Posts a bond, moves the
+    /// antibody to Challenged (still fail-closed) until the governor resolves.
+    pub fn challenge(ctx: Context<Challenge>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let bond = config.challenge_stake;
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.challenger_ata.to_account_info(),
+                    to: ctx.accounts.stake_vault.to_account_info(),
+                    authority: ctx.accounts.challenger.to_account_info(),
+                },
+            ),
+            bond,
+        )?;
+        config.reserved = config.reserved.checked_add(bond).unwrap();
