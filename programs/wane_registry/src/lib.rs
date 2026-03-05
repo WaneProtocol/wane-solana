@@ -190,3 +190,38 @@ pub mod wane_registry {
         a.challenger = Pubkey::default();
         Ok(())
     }
+
+    /// Claim accumulated rewards (earned bonds) to your token account.
+    pub fn claim_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let earned = &mut ctx.accounts.earned;
+        let amt = earned.amount;
+        require!(amt > 0, WaneError::NothingToClaim);
+        earned.amount = 0;
+        config.reserved = config.reserved.checked_sub(amt).unwrap();
+        pay_from_vault(
+            &ctx.accounts.token_program,
+            &ctx.accounts.stake_vault,
+            &ctx.accounts.claimer_ata,
+            ctx.accounts.config_for_signer.to_account_info(),
+            config.bump,
+            amt,
+        )?;
+        Ok(())
+    }
+
+    /// Governor: update the $WANE mint, stake vault, treasury, and economic
+    /// params. The mint/vault are re-read from the passed accounts; the scalar
+    /// params are taken from `p`. governor / counters / reserved are untouched.
+    pub fn update_config(ctx: Context<UpdateConfig>, p: InitParams) -> Result<()> {
+        let c = &mut ctx.accounts.config;
+        c.treasury = p.treasury;
+        c.wane_mint = ctx.accounts.wane_mint.key();
+        c.stake_vault = ctx.accounts.stake_vault.key();
+        c.mint_stake = p.mint_stake;
+        c.challenge_stake = p.challenge_stake;
+        c.maturity_secs = p.maturity_secs;
+        c.enforce_window_secs = p.enforce_window_secs;
+        c.enforce_corrobs = p.enforce_corrobs;
+        Ok(())
+    }
