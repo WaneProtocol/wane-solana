@@ -142,3 +142,51 @@ pub mod wane_registry {
             bond,
         )?;
         config.reserved = config.reserved.checked_add(bond).unwrap();
+
+        let a = &mut ctx.accounts.antibody;
+        require!(a.status == Status::Active as u8, WaneError::NotActive);
+        a.status = Status::Challenged as u8;
+        a.challenger = ctx.accounts.challenger.key();
+        a.challenge_bond = bond;
+        Ok(())
+    }
+
+    /// Governor resolves a challenge.
+    /// false_positive=true: antibody Revoked, challenger gets bond + the publisher
+    /// stake (slash). false_positive=false: antibody back to Active, publisher
+    /// keeps stake and earns the challenge bond (challenger slashed).
+    pub fn resolve(ctx: Context<Resolve>, false_positive: bool) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let a = &mut ctx.accounts.antibody;
+        require!(a.status == Status::Challenged as u8, WaneError::NotChallenged);
+
+        let bond = a.challenge_bond;
+        let stake = a.stake;
+        // CEI: clear state first
+        a.challenge_bond = 0;
+
+        if false_positive {
+            // antibody was wrong: revoke, pay challenger bond + slashed stake
+            a.status = Status::Revoked as u8;
+            a.stake = 0;
+            let payout = bond.checked_add(stake).unwrap();
+            config.reserved = config.reserved.checked_sub(payout).unwrap();
+            pay_from_vault(
+                &ctx.accounts.token_program,
+                &ctx.accounts.stake_vault,
+                &ctx.accounts.challenger_ata,
+                ctx.accounts.config_for_signer.to_account_info(),
+                config.bump,
+                payout,
+            )?;
+        } else {
+            // antibody was right: restore, challenger bond credited to publisher earned
+            a.status = Status::Active as u8;
+            // bond reclassified from reserved-as-bond to reserved-as-earned: net unchanged
+            let earned = &mut ctx.accounts.publisher_earned;
+            earned.amount = earned.amount.checked_add(bond).unwrap();
+            earned.bump = ctx.bumps.publisher_earned;
+        }
+        a.challenger = Pubkey::default();
+        Ok(())
+    }
