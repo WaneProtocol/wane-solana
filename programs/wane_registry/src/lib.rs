@@ -252,3 +252,50 @@ pub mod wane_registry {
         Ok(())
     }
 }
+
+/// Helper: pay $WANE out of the stake vault, signed by the RegistryConfig PDA.
+fn pay_from_vault<'info>(
+    token_program: &Program<'info, Token>,
+    stake_vault: &Account<'info, TokenAccount>,
+    to: &Account<'info, TokenAccount>,
+    config_ai: AccountInfo<'info>,
+    config_bump: u8,
+    amount: u64,
+) -> Result<()> {
+    let seeds: &[&[u8]] = &[b"config", &[config_bump]];
+    token::transfer(
+        CpiContext::new_with_signer(
+            token_program.to_account_info(),
+            Transfer {
+                from: stake_vault.to_account_info(),
+                to: to.to_account_info(),
+                authority: config_ai,
+            },
+            &[seeds],
+        ),
+        amount,
+    )?;
+    Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// Shared enforceability logic (mirrors WaneRegistry _enforceable in Solidity).
+// The vault program ports the identical rule when it screens a send.
+// ----------------------------------------------------------------------------
+impl Antibody {
+    pub fn is_enforceable(&self, now: i64, enforce_window_secs: i64, enforce_corrobs: u32) -> bool {
+        if self.status == Status::Revoked as u8 {
+            return false;
+        }
+        if self.status == Status::Challenged as u8 {
+            return true; // fail-closed during dispute
+        }
+        if self.stake == 0 {
+            return true; // genesis / protocol-owned, trusted
+        }
+        if self.corroborations >= enforce_corrobs {
+            return true;
+        }
+        now >= self.minted_ts + enforce_window_secs
+    }
+}
