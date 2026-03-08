@@ -225,3 +225,30 @@ pub mod wane_registry {
         c.enforce_corrobs = p.enforce_corrobs;
         Ok(())
     }
+
+    /// Governor: pause / unpause the registry (blocks new mints).
+    pub fn set_registry_paused(ctx: Context<GovernorOnly>, paused: bool) -> Result<()> {
+        ctx.accounts.config.paused = paused;
+        Ok(())
+    }
+
+    /// Governor: nominate a successor. Takes effect only after the nominee calls
+    /// accept_governor (two-step transfer, avoids handing control to a typo).
+    pub fn nominate_governor(ctx: Context<GovernorOnly>, new_governor: Pubkey) -> Result<()> {
+        ctx.accounts.config.pending_governor = new_governor;
+        Ok(())
+    }
+
+    /// Pending governor: accept the nomination and become governor.
+    pub fn accept_governor(ctx: Context<AcceptGovernor>) -> Result<()> {
+        let c = &mut ctx.accounts.config;
+        require!(
+            c.pending_governor != Pubkey::default()
+                && ctx.accounts.new_governor.key() == c.pending_governor,
+            WaneError::NotPending
+        );
+        c.governor = c.pending_governor;
+        c.pending_governor = Pubkey::default();
+        Ok(())
+    }
+}
