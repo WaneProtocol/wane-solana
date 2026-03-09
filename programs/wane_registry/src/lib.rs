@@ -299,3 +299,28 @@ impl Antibody {
         now >= self.minted_ts + enforce_window_secs
     }
 }
+
+// ---------------------------- state ----------------------------
+
+#[account]
+pub struct RegistryConfig {
+    pub governor: Pubkey,
+    pub pending_governor: Pubkey,
+    pub treasury: Pubkey,
+    pub wane_mint: Pubkey,
+    pub stake_vault: Pubkey,
+    pub antibody_count: u64,
+    pub reserved: u64,
+    pub mint_stake: u64,
+    pub challenge_stake: u64,
+    pub maturity_secs: i64,
+    pub enforce_window_secs: i64,
+    pub enforce_corrobs: u32,
+    pub genesis_open: bool,
+    pub paused: bool,
+    pub bump: u8,
+}
+impl RegistryConfig {
+    // 5 pubkeys + (count,reserved,mint_stake,challenge_stake)=4*u64 + (maturity,window)=2*i64 + corrobs u32 + 2 bool + bump
+    pub const LEN: usize = 32 * 5 + 8 * 4 + 8 * 2 + 4 + 1 + 1 + 1;
+}
