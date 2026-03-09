@@ -159,3 +159,215 @@ parameters, indicator preferences, and execution style.
 Full strategy documentation: [docs/mbti-strategies.md](docs/mbti-strategies.md)
 
 ---
+
+## x402 Protocol
+
+PIKKY uses x402 for pay-per-use AI trading services. When a client requests
+a premium endpoint, the server returns HTTP 402 with payment instructions.
+The client pays on-chain and retries with proof.
+
+```
+Client                    Server                   Solana
+  |                         |                        |
+  |-- GET /api/trade ------>|                        |
+  |<-- 402 + payment info --|                        |
+  |                         |                        |
+  |-- Transfer SOL ---------|----------------------->|
+  |<-- tx signature --------|------------------------|
+  |                         |                        |
+  |-- GET /api/trade ------>|                        |
+  |   + X-Payment-Signature |-- verify on-chain ---->|
+  |                         |<-- confirmed ----------|
+  |<-- 200 + trade result --|                        |
+```
+
+| Endpoint | Cost |
+|----------|------|
+| `POST /api/agent/trade` | 0.01 SOL |
+| `POST /api/agent/analyze` | 0.005 SOL |
+| `GET /api/agent/signals` | 0.002 SOL |
+| `POST /api/agent/strategy` | 0.001 SOL |
+| `GET /api/portfolio` | Free |
+| `POST /api/deposit` | Free |
+| `POST /api/withdraw` | Free |
+
+Full spec: [docs/x402-spec.md](docs/x402-spec.md)
+
+---
+
+## SDK Usage
+
+### TypeScript
+
+```typescript
+import { PikkyClient, MBTIType } from '@pikky/sdk';
+import { Connection, Keypair } from '@solana/web3.js';
+
+const connection = new Connection('https://api.mainnet-beta.solana.com');
+const wallet = loadWalletFromFile('./wallet.json');
+
+const client = new PikkyClient({ connection, wallet });
+
+// Initialize user account
+await client.initialize();
+
+// Deposit 5 SOL
+await client.deposit(5.0);
+
+// Set personality
+await client.setMBTIType(MBTIType.INTJ);
+
+// Enable auto-trading
+await client.setAutoTrading(true);
+
+// Check status
+const status = await client.getStatus();
+console.log(`Balance: ${status.currentBalance}`);
+console.log(`PnL: ${status.realizedPnl}`);
+console.log(`Trades: ${status.totalTrades}`);
+console.log(`Win rate: ${status.winningTrades / status.totalTrades}`);
+
+// Manual trade
+await client.executeTrade({
+  side: 'buy',
+  inputMint: SOL_MINT,
+  outputMint: USDC_MINT,
+  amount: 1_000_000_000,
+  slippageBps: 50,
+});
+
+// Withdraw everything
+await client.withdrawAll();
+```
+
+### x402 Payment Flow
+
+```typescript
+import { X402Client } from '@pikky/sdk';
+
+const x402 = new X402Client({ connection, wallet, network: 'solana:mainnet-beta' });
+
+// Automatically handles 402 -> pay -> retry
+const result = await x402.requestWithPayment('https://api.pikky.sol/api/agent/trade', {
+  method: 'POST',
+  body: JSON.stringify({ pair: 'SOL/USDC', mbti: 'INTJ' }),
+});
+
+console.log(result.trade);
+```
+
+---
+
+## API Usage
+
+### Deposit Funds
+
+```bash
+curl -X POST https://api.pikky.sol/api/deposit \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 5000000000, "wallet": "YOUR_PUBKEY"}'
+```
+
+### Set MBTI Type
+
+```bash
+curl -X POST https://api.pikky.sol/api/mbti \
+  -H "Content-Type: application/json" \
+  -d '{"type": "INTJ", "wallet": "YOUR_PUBKEY"}'
+```
+
+### Execute Trade (requires x402 payment)
+
+```bash
+# First request returns 402
+curl -X POST https://api.pikky.sol/api/agent/trade \
+  -H "Content-Type: application/json" \
+  -d '{"pair": "SOL/USDC"}'
+
+# Response: 402 with X-Payment-* headers
+# Pay on-chain, then retry with proof:
+
+curl -X POST https://api.pikky.sol/api/agent/trade \
+  -H "Content-Type: application/json" \
+  -H "X-Payment-Signature: YOUR_TX_SIG" \
+  -H "X-Payment-Nonce: NONCE_FROM_402" \
+  -d '{"pair": "SOL/USDC"}'
+```
+
+### Check Portfolio
+
+```bash
+curl https://api.pikky.sol/api/portfolio?wallet=YOUR_PUBKEY
+```
+
+---
+
+## CLI Usage
+
+```bash
+# Initialize
+pikky init --wallet ./wallet.json
+
+# Deposit
+pikky deposit --amount 5.0
+
+# Set personality
+pikky mbti set INTJ
+
+# View strategy parameters
+pikky mbti info INTJ
+
+# Enable auto-trading
+pikky auto-trade enable
+
+# Check status
+pikky status
+
+# View trade history
+pikky trades --limit 20
+
+# Check PnL
+pikky pnl
+
+# Withdraw
+pikky withdraw --amount 2.5
+pikky withdraw --all
+
+# Emergency stop
+pikky emergency-stop
+```
+
+---
+
+## Project Structure
+
+```
+pikky/
+  programs/              Solana program (Rust / Anchor)
+    src/
+      lib.rs             Program entrypoint
+      instructions/      Instruction handlers
+      state/             Account definitions
+      x402.rs            Payment verification
+      errors.rs          Error types
+  sdk/                   TypeScript SDK
+    src/
+      client.ts          Main client
+      x402.ts            x402 utilities
+      mbti.ts            MBTI definitions
+      types.ts           Type exports
+  agent/                 Python trading agent
+    src/
+      engine.py          Trading engine
+      strategies.py      MBTI strategies
+      x402_handler.py    Payment handler
+      market.py          Market data
+  tests/                 Test suites
+    sdk/                 SDK unit tests
+    agent/               Agent unit tests
+    integration/         End-to-end tests
+  docs/                  Documentation
+  scripts/               Build and deploy scripts
+```
+
+---
