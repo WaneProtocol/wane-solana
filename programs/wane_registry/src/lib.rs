@@ -324,3 +324,44 @@ impl RegistryConfig {
     // 5 pubkeys + (count,reserved,mint_stake,challenge_stake)=4*u64 + (maturity,window)=2*i64 + corrobs u32 + 2 bool + bump
     pub const LEN: usize = 32 * 5 + 8 * 4 + 8 * 2 + 4 + 1 + 1 + 1;
 }
+
+#[account]
+pub struct Antibody {
+    pub id: u64,
+    pub kind: u8,
+    pub status: u8,
+    pub publisher: Pubkey,
+    pub stake: u64,
+    pub minted_ts: i64,
+    pub corroborations: u32,
+    pub subject: [u8; 32],
+    pub evidence: [u8; 32],
+    pub challenger: Pubkey,
+    pub challenge_bond: u64,
+    pub bump: u8,
+}
+impl Antibody {
+    pub const LEN: usize = 8 + 1 + 1 + 32 + 8 + 8 + 4 + 32 + 32 + 32 + 8 + 1;
+}
+
+#[account]
+pub struct Corroboration {
+    pub bump: u8,
+}
+
+#[account]
+pub struct Earned {
+    pub amount: u64,
+    pub bump: u8,
+}
+impl Earned {
+    pub const LEN: usize = 8 + 1;
+}
+
+#[repr(u8)]
+pub enum Status {
+    None = 0,
+    Active = 1,
+    Challenged = 2,
+    Revoked = 3,
+}
