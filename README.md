@@ -371,3 +371,38 @@ pikky/
 ```
 
 ---
+
+## Documentation
+
+- [System Architecture](docs/architecture.md)
+- [x402 Protocol Specification](docs/x402-spec.md)
+- [MBTI Trading Strategies](docs/mbti-strategies.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+
+---
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup
+instructions, coding standards, and the PR process.
+
+---
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md) for responsible disclosure
+instructions. Do not open a public issue for security problems.
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
+## Links
+
+- X: [https://x.com/Pikkydotfun](https://x.com/Pikkydotfun)
+- Website: [https://pikky.fun/](https://pikky.fun/)
