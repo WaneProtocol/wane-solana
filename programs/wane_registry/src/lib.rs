@@ -365,3 +365,42 @@ pub enum Status {
     Challenged = 2,
     Revoked = 3,
 }
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitParams {
+    pub treasury: Pubkey,
+    pub mint_stake: u64,
+    pub challenge_stake: u64,
+    pub maturity_secs: i64,
+    pub enforce_window_secs: i64,
+    pub enforce_corrobs: u32,
+}
+
+#[event]
+pub struct AntibodyMinted {
+    pub id: u64,
+    pub kind: u8,
+    pub subject: [u8; 32],
+    pub publisher: Pubkey,
+}
+
+// ---------------------------- accounts ----------------------------
+
+#[derive(Accounts)]
+pub struct InitConfig<'info> {
+    #[account(mut)]
+    pub governor: Signer<'info>,
+    #[account(
+        init,
+        payer = governor,
+        space = 8 + RegistryConfig::LEN,
+        seeds = [b"config"],
+        bump
+    )]
+    pub config: Account<'info, RegistryConfig>,
+    /// CHECK: $WANE mint, recorded only
+    pub wane_mint: UncheckedAccount<'info>,
+    /// CHECK: the PDA token account holding staked $WANE, recorded only
+    pub stake_vault: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
