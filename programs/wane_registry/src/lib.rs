@@ -404,3 +404,43 @@ pub struct InitConfig<'info> {
     pub stake_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+#[instruction(kind: u8, subject: [u8; 32])]
+pub struct MintAntibody<'info> {
+    #[account(mut)]
+    pub publisher: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    #[account(
+        init,
+        payer = publisher,
+        space = 8 + Antibody::LEN,
+        seeds = [b"antibody".as_ref(), std::slice::from_ref(&kind), subject.as_ref()],
+        bump
+    )]
+    pub antibody: Account<'info, Antibody>,
+    #[account(mut)]
+    pub publisher_ata: Account<'info, TokenAccount>,
+    #[account(mut, address = config.stake_vault)]
+    pub stake_vault: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct Corroborate<'info> {
+    #[account(mut)]
+    pub corroborator: Signer<'info>,
+    #[account(mut)]
+    pub antibody: Account<'info, Antibody>,
+    #[account(
+        init,
+        payer = corroborator,
+        space = 8 + 1,
+        seeds = [b"corrob", antibody.key().as_ref(), corroborator.key().as_ref()],
+        bump
+    )]
+    pub corroboration: Account<'info, Corroboration>,
+    pub system_program: Program<'info, System>,
+}
