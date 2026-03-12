@@ -444,3 +444,29 @@ pub struct Corroborate<'info> {
     pub corroboration: Account<'info, Corroboration>,
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+#[instruction(kind: u8, subject: [u8; 32])]
+pub struct SeedGenesis<'info> {
+    #[account(mut, address = config.governor)]
+    pub governor: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    #[account(
+        init,
+        payer = governor,
+        space = 8 + Antibody::LEN,
+        seeds = [b"antibody".as_ref(), std::slice::from_ref(&kind), subject.as_ref()],
+        bump
+    )]
+    pub antibody: Account<'info, Antibody>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct GovernorOnly<'info> {
+    #[account(address = config.governor)]
+    pub governor: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+}
