@@ -470,3 +470,37 @@ pub struct GovernorOnly<'info> {
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, RegistryConfig>,
 }
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(address = config.governor)]
+    pub governor: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    /// CHECK: new $WANE mint, recorded only
+    pub wane_mint: UncheckedAccount<'info>,
+    /// CHECK: the PDA token account holding staked $WANE, recorded only
+    pub stake_vault: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptGovernor<'info> {
+    pub new_governor: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+}
+
+#[derive(Accounts)]
+pub struct Challenge<'info> {
+    #[account(mut)]
+    pub challenger: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    #[account(mut)]
+    pub antibody: Account<'info, Antibody>,
+    #[account(mut)]
+    pub challenger_ata: Account<'info, TokenAccount>,
+    #[account(mut, address = config.stake_vault)]
+    pub stake_vault: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
