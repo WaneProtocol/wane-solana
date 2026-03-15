@@ -419,4 +419,3 @@ fn parse_hex_hash(hex: &str) -> Result<[u8; 32]> {
     }
     Ok(bytes)
 }
-
