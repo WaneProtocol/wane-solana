@@ -553,3 +553,25 @@ pub struct ClaimRewards<'info> {
     pub claimer_ata: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
+
+// ---------------------------- errors ----------------------------
+
+#[error_code]
+pub enum WaneError {
+    #[msg("registry is paused")]
+    Paused,
+    #[msg("threat kind must be 0..3")]
+    BadKind,
+    #[msg("antibody is not active")]
+    NotActive,
+    #[msg("cannot corroborate your own antibody")]
+    SelfCorroborate,
+    #[msg("genesis window is closed")]
+    GenesisClosed,
+    #[msg("antibody is not challenged")]
+    NotChallenged,
+    #[msg("nothing to claim")]
+    NothingToClaim,
+    #[msg("no pending governor / caller is not the nominee")]
+    NotPending,
+}
