@@ -504,3 +504,52 @@ pub struct Challenge<'info> {
     pub stake_vault: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
+
+#[derive(Accounts)]
+pub struct Resolve<'info> {
+    #[account(mut, address = config.governor)]
+    pub governor: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    /// CHECK: same as config, passed as the invoke_signed authority for payouts
+    #[account(address = config.key())]
+    pub config_for_signer: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub antibody: Account<'info, Antibody>,
+    #[account(mut, address = config.stake_vault)]
+    pub stake_vault: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub challenger_ata: Account<'info, TokenAccount>,
+    #[account(
+        init_if_needed,
+        payer = governor,
+        space = 8 + Earned::LEN,
+        seeds = [b"earned", antibody.publisher.as_ref()],
+        bump
+    )]
+    pub publisher_earned: Account<'info, Earned>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimRewards<'info> {
+    #[account(mut)]
+    pub claimer: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, RegistryConfig>,
+    /// CHECK: same as config, invoke_signed authority
+    #[account(address = config.key())]
+    pub config_for_signer: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"earned", claimer.key().as_ref()],
+        bump = earned.bump
+    )]
+    pub earned: Account<'info, Earned>,
+    #[account(mut, address = config.stake_vault)]
+    pub stake_vault: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub claimer_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
