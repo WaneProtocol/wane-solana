@@ -17,6 +17,7 @@ trades autonomously using on-chain payment verification through the x402 protoco
 
 Pick a personality. Fund the vault. Let PIKKY trade.
 
+CA: 3xPBueSG62wgLxT2ESDRTrFbKjPMBaVbhNtMX7gmpump
 ---
 
 ## How It Works
