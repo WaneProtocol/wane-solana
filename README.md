@@ -1,5 +1,9 @@
 # PIKKY
 
+<p align="center">
+  <img src="assets/banner.png" alt="PIKKY Banner" width="100%">
+</p>
+
 [![Build Status](https://img.shields.io/github/actions/workflow/status/Pikky2026/PIKKY/ci.yml?branch=main&style=flat-square&color=%2364f4d8&label=CI)](https://github.com/Pikky2026/PIKKY/actions)
 [![License](https://img.shields.io/badge/license-MIT-ff7eb3?style=flat-square)](LICENSE)
 [![Solana](https://img.shields.io/badge/Solana-mainnet--beta-b08cf5?style=flat-square)](https://solana.com)
