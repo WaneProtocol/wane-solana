@@ -35,3 +35,19 @@ pub mod wane_vault {
         p.vault_bump = ctx.bumps.vault;
         Ok(())
     }
+
+    /// Deposit native SOL into the owner's vault PDA. Funds stay owner-controlled;
+    /// the program can only release them through screened wane_execute.
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.owner.to_account_info(),
+                    to: ctx.accounts.vault.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+        Ok(())
+    }
