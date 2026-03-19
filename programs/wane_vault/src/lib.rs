@@ -51,3 +51,37 @@ pub mod wane_vault {
         )?;
         Ok(())
     }
+
+    /// Screen + send native SOL from the vault to `destination`.
+    /// Reverts (before any value moves) if the destination is a flagged,
+    /// enforceable antibody, or if the policy caps/pause/expiry reject it.
+    pub fn wane_execute(ctx: Context<WaneExecute>, amount: u64) -> Result<()> {
+        let policy = &mut ctx.accounts.policy;
+        let now = Clock::get()?.unix_timestamp;
+
+        // ---- policy gate (mirrors WanePolicy._evaluate order) ----
+        require!(policy.enabled, VaultError::NotEnabled);
+        require!(!policy.paused, VaultError::Paused);
+        require!(
+            policy.expires_at == 0 || now < policy.expires_at,
+            VaultError::Expired
+        );
+
+        // ---- registry threat screen (the core: reuse is_enforceable) ----
+        // `antibody` is constrained by seeds to be THE (Address, destination) PDA in
+        // the registry program. This binding is the security property: a client
+        // CANNOT omit it or point it at a different (clean) address to bypass the
+        // screen. If the PDA carries registry-owned data, the destination is flagged.
+        if policy.block_kinds & K_ADDRESS != 0 {
+            let ab_ai = ctx.accounts.antibody.to_account_info();
+            if ab_ai.owner == &wane_registry::ID && !ab_ai.data_is_empty() {
+                let data = ab_ai.try_borrow_data()?;
+                let ab = Antibody::try_deserialize(&mut &data[..])?;
+                let cfg = &ctx.accounts.registry_config;
+                if ab.is_enforceable(now, cfg.enforce_window_secs, cfg.enforce_corrobs)
+                    && ab.corroborations >= policy.min_corrobs
+                {
+                    return err!(VaultError::Blocked);
+                }
+            }
+        }
