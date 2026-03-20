@@ -85,3 +85,18 @@ pub mod wane_vault {
                 }
             }
         }
+
+        // ---- caps ----
+        if policy.per_tx_cap != 0 {
+            require!(amount <= policy.per_tx_cap, VaultError::OverPerTx);
+        }
+        if policy.daily_cap != 0 {
+            let today = now / 86400;
+            if today != policy.day_start {
+                policy.day_start = today;
+                policy.spent_today = 0;
+            }
+            let used = policy.spent_today.checked_add(amount).unwrap();
+            require!(used <= policy.daily_cap, VaultError::OverDaily);
+            policy.spent_today = used;
+        }
