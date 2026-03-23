@@ -100,3 +100,26 @@ pub mod wane_vault {
             require!(used <= policy.daily_cap, VaultError::OverDaily);
             policy.spent_today = used;
         }
+
+        // ---- passed: move SOL from vault PDA via signed transfer ----
+        let owner_key = policy.owner;
+        let seeds: &[&[u8]] = &[b"vault", owner_key.as_ref(), &[policy.vault_bump]];
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.destination.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount,
+        )?;
+        Ok(())
+    }
+
+    /// Owner kill switch.
+    pub fn set_paused(ctx: Context<OwnerOnly>, paused: bool) -> Result<()> {
+        ctx.accounts.policy.paused = paused;
+        Ok(())
+    }
