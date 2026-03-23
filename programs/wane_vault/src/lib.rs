@@ -123,3 +123,36 @@ pub mod wane_vault {
         ctx.accounts.policy.paused = paused;
         Ok(())
     }
+
+    /// Owner: adjust policy params (caps, expiry, blocked kinds, min corrobs)
+    /// after enrollment. Does not touch spent_today / day_start accounting.
+    pub fn update_policy(ctx: Context<OwnerOnly>, params: PolicyParams) -> Result<()> {
+        let p = &mut ctx.accounts.policy;
+        p.block_kinds = params.block_kinds;
+        p.min_corrobs = params.min_corrobs;
+        p.per_tx_cap = params.per_tx_cap;
+        p.daily_cap = params.daily_cap;
+        p.expires_at = params.expires_at;
+        Ok(())
+    }
+
+    /// Owner: withdraw native SOL from the vault back to themselves. Unscreened
+    /// (returning your own funds is never a threat) so funds can never be trapped.
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        let owner_key = ctx.accounts.policy.owner;
+        let bump = ctx.accounts.policy.vault_bump;
+        let seeds: &[&[u8]] = &[b"vault", owner_key.as_ref(), &[bump]];
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.owner.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount,
+        )?;
+        Ok(())
+    }
+}
