@@ -156,3 +156,32 @@ pub mod wane_vault {
         Ok(())
     }
 }
+
+/// Antibody enum kind for an address threat (matches registry Status/kind 0 and
+/// the SDK ThreatKind.Address). Distinct from the K_ADDRESS policy bitmask below.
+pub const KIND_ADDRESS: u8 = 0;
+
+pub const K_ADDRESS: u8 = 1;
+pub const K_CALL: u8 = 2;
+pub const K_BYTECODE: u8 = 4;
+pub const K_SEMANTIC: u8 = 8;
+
+#[account]
+pub struct AgentPolicy {
+    pub owner: Pubkey,
+    pub vault: Pubkey,
+    pub enabled: bool,
+    pub paused: bool,
+    pub block_kinds: u8,
+    pub min_corrobs: u32,
+    pub per_tx_cap: u64,
+    pub daily_cap: u64,
+    pub spent_today: u64,
+    pub day_start: i64,
+    pub expires_at: i64,
+    pub bump: u8,
+    pub vault_bump: u8,
+}
+impl AgentPolicy {
+    pub const LEN: usize = 32 + 32 + 1 + 1 + 1 + 4 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+}
