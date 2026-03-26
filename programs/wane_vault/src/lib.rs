@@ -185,3 +185,12 @@ pub struct AgentPolicy {
 impl AgentPolicy {
     pub const LEN: usize = 32 + 32 + 1 + 1 + 1 + 4 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
 }
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct PolicyParams {
+    pub block_kinds: u8,
+    pub min_corrobs: u32,
+    pub per_tx_cap: u64,
+    pub daily_cap: u64,
+    pub expires_at: i64,
+}
