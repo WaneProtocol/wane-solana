@@ -194,3 +194,25 @@ pub struct PolicyParams {
     pub daily_cap: u64,
     pub expires_at: i64,
 }
+
+#[derive(Accounts)]
+pub struct Enroll<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + AgentPolicy::LEN,
+        seeds = [b"policy", owner.key().as_ref()],
+        bump
+    )]
+    pub policy: Account<'info, AgentPolicy>,
+    /// CHECK: vault PDA, holds native SOL, owner-scoped. No data.
+    #[account(
+        mut,
+        seeds = [b"vault", owner.key().as_ref()],
+        bump
+    )]
+    pub vault: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
