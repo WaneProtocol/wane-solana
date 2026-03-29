@@ -216,3 +216,46 @@ pub struct Enroll<'info> {
     pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    /// CHECK: vault PDA
+    #[account(mut, seeds = [b"vault", owner.key().as_ref()], bump)]
+    pub vault: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WaneExecute<'info> {
+    #[account(mut, address = policy.owner)]
+    pub owner: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"policy", owner.key().as_ref()],
+        bump = policy.bump,
+        has_one = owner
+    )]
+    pub policy: Account<'info, AgentPolicy>,
+    /// CHECK: vault PDA, validated by seeds
+    #[account(mut, seeds = [b"vault", owner.key().as_ref()], bump = policy.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// CHECK: arbitrary recipient
+    #[account(mut)]
+    pub destination: UncheckedAccount<'info>,
+    /// The registry config (for enforce window/corrobs). Read-only.
+    pub registry_config: Account<'info, RegistryConfig>,
+    /// CHECK: bound by seeds to the (Address, destination) antibody PDA in the
+    /// registry program. May be uninitialized (clean) but its ADDRESS is forced,
+    /// so it cannot be omitted or swapped to dodge the screen. Data is validated
+    /// in the handler before use.
+    #[account(
+        seeds = [b"antibody".as_ref(), std::slice::from_ref(&KIND_ADDRESS), destination.key().as_ref()],
+        bump,
+        seeds::program = wane_registry::ID
+    )]
+    pub antibody: UncheckedAccount<'info>,
+    pub registry_program: Program<'info, WaneRegistry>,
+    pub system_program: Program<'info, System>,
+}
