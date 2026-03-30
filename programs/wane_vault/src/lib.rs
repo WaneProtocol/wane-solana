@@ -271,3 +271,27 @@ pub struct Withdraw<'info> {
     pub vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+pub struct OwnerOnly<'info> {
+    #[account(address = policy.owner)]
+    pub owner: Signer<'info>,
+    #[account(mut, seeds = [b"policy", owner.key().as_ref()], bump = policy.bump)]
+    pub policy: Account<'info, AgentPolicy>,
+}
+
+#[error_code]
+pub enum VaultError {
+    #[msg("policy not enabled")]
+    NotEnabled,
+    #[msg("vault is paused (kill switch)")]
+    Paused,
+    #[msg("policy expired")]
+    Expired,
+    #[msg("destination is a flagged threat (antibody)")]
+    Blocked,
+    #[msg("over per-transaction cap")]
+    OverPerTx,
+    #[msg("over daily cap")]
+    OverDaily,
+}
