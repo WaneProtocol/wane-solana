@@ -259,3 +259,15 @@ pub struct WaneExecute<'info> {
     pub registry_program: Program<'info, WaneRegistry>,
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut, address = policy.owner)]
+    pub owner: Signer<'info>,
+    #[account(mut, seeds = [b"policy", owner.key().as_ref()], bump = policy.bump, has_one = owner)]
+    pub policy: Account<'info, AgentPolicy>,
+    /// CHECK: vault PDA, validated by seeds
+    #[account(mut, seeds = [b"vault", owner.key().as_ref()], bump = policy.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
