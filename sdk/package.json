@@ -1,0 +1,34 @@
+{
+  "name": "wane-sdk",
+  "version": "0.1.0",
+  "description": "Wane: shared on-chain immune memory for AI agents on Solana. Read the antibody registry before you sign, report threats, or route an agent through a Wane session wallet that blocks flagged sends on-chain.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "solana",
+    "anchor",
+    "ai-agent",
+    "security",
+    "antibody",
+    "threat-intelligence",
+    "session-wallet",
+    "web3"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@solana/web3.js": "^1.98.4"
+  },
+  "dependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}
