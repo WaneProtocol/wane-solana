@@ -23,3 +23,30 @@ import { createHash } from "crypto";
 export const REGISTRY_PROGRAM = new PublicKey("5Arj4zbFs5GigEGUSUb9hKNMYaPLqv1XgJXUcnGJ1wJH");
 export const VAULT_PROGRAM = new PublicKey("5YK7gMzkjUvLaxfNisMdtjRK4UeAiJBCSonB3GgrtTYh");
 const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+export enum ThreatKind {
+  Address = 0,
+  CallPattern = 1,
+  Bytecode = 2,
+  Semantic = 3,
+}
+export enum Status {
+  None = 0,
+  Active = 1,
+  Challenged = 2,
+  Revoked = 3,
+}
+
+export interface Antibody {
+  id: bigint;
+  kind: number;
+  status: number;
+  publisher: PublicKey;
+  stake: bigint;
+  mintedTs: bigint;
+  corroborations: number;
+  subject: Uint8Array;
+  evidence: Uint8Array;
+  challenger: PublicKey;
+  challengeBond: bigint;
+}
