@@ -50,3 +50,35 @@ export interface Antibody {
   challenger: PublicKey;
   challengeBond: bigint;
 }
+
+export interface Verdict {
+  flagged: boolean;
+  antibody: Antibody | null;
+}
+
+export class WaneBlockedError extends Error {
+  constructor(public target: PublicKey) {
+    super(`Wane: ${target.toBase58()} is a flagged threat (antibody)`);
+    this.name = "WaneBlockedError";
+  }
+}
+
+// ---- encoding helpers ----
+function disc(name: string): Buffer {
+  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+}
+const u64 = (n: bigint | number) => {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(BigInt(n));
+  return b;
+};
+const i64 = (n: bigint | number) => {
+  const b = Buffer.alloc(8);
+  b.writeBigInt64LE(BigInt(n));
+  return b;
+};
+const u32 = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(n);
+  return b;
+};
