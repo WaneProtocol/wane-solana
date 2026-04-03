@@ -82,3 +82,24 @@ const u32 = (n: number) => {
   b.writeUInt32LE(n);
   return b;
 };
+
+// subject is a 32-byte key. For a Solana address use the raw pubkey bytes.
+function subjectOf(target: PublicKey): Buffer {
+  return Buffer.from(target.toBytes());
+}
+
+export function antibodyPda(kind: ThreatKind, subject: Buffer): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("antibody"), Buffer.from([kind]), subject],
+    REGISTRY_PROGRAM,
+  )[0];
+}
+export function configPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("config")], REGISTRY_PROGRAM)[0];
+}
+export function policyPda(owner: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("policy"), owner.toBuffer()], VAULT_PROGRAM)[0];
+}
+export function vaultPda(owner: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("vault"), owner.toBuffer()], VAULT_PROGRAM)[0];
+}
