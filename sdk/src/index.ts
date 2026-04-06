@@ -103,3 +103,19 @@ export function policyPda(owner: PublicKey): PublicKey {
 export function vaultPda(owner: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("vault"), owner.toBuffer()], VAULT_PROGRAM)[0];
 }
+
+function parseAntibody(data: Buffer): Antibody {
+  let o = 8; // skip discriminator
+  const id = data.readBigUInt64LE(o); o += 8;
+  const kind = data[o]; o += 1;
+  const status = data[o]; o += 1;
+  const publisher = new PublicKey(data.subarray(o, o + 32)); o += 32;
+  const stake = data.readBigUInt64LE(o); o += 8;
+  const mintedTs = data.readBigInt64LE(o); o += 8;
+  const corroborations = data.readUInt32LE(o); o += 4;
+  const subject = Uint8Array.from(data.subarray(o, o + 32)); o += 32;
+  const evidence = Uint8Array.from(data.subarray(o, o + 32)); o += 32;
+  const challenger = new PublicKey(data.subarray(o, o + 32)); o += 32;
+  const challengeBond = data.readBigUInt64LE(o); o += 8;
+  return { id, kind, status, publisher, stake, mintedTs, corroborations, subject, evidence, challenger, challengeBond };
+}
