@@ -119,3 +119,34 @@ function parseAntibody(data: Buffer): Antibody {
   const challengeBond = data.readBigUInt64LE(o); o += 8;
   return { id, kind, status, publisher, stake, mintedTs, corroborations, subject, evidence, challenger, challengeBond };
 }
+
+/**
+ * Wane client. Construct with a Connection; pass a Signer for write calls.
+ */
+export class Wane {
+  constructor(public connection: Connection) {}
+
+  static devnet(): Wane {
+    return new Wane(new Connection("https://api.devnet.solana.com", "confirmed"));
+  }
+  static mainnet(): Wane {
+    return new Wane(new Connection("https://api.mainnet-beta.solana.com", "confirmed"));
+  }
+
+  // ---------- READ PATH (bot devs, free, no wallet): reading is immunity ----------
+
+  /** Look up whether a target address carries an enforceable antibody. Free. */
+  async checkAddress(target: PublicKey): Promise<Verdict> {
+    return this.check(ThreatKind.Address, subjectOf(target));
+  }
+
+  async check(kind: ThreatKind, subject: Buffer): Promise<Verdict> {
+    const pda = antibodyPda(kind, subject);
+    const acc = await this.connection.getAccountInfo(pda);
+    if (!acc) return { flagged: false, antibody: null };
+    const ab = parseAntibody(Buffer.from(acc.data));
+    // enforceable = not revoked. (full maturity/corrob gating mirrors the program;
+    // genesis stake==0 and Challenged are always enforceable.)
+    const flagged = ab.status !== Status.Revoked;
+    return { flagged, antibody: ab };
+  }
