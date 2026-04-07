@@ -166,3 +166,28 @@ export class Wane {
   }
 
   // ---------- REPORT (mint an antibody so others are immune) ----------
+
+  /** Report a new threat. Stakes $WANE (publisher_ata must hold it). */
+  async reportIx(
+    publisher: PublicKey,
+    publisherAta: PublicKey,
+    stakeVault: PublicKey,
+    kind: ThreatKind,
+    subject: Buffer,
+    evidence: Buffer = Buffer.alloc(32),
+  ): Promise<TransactionInstruction> {
+    const data = Buffer.concat([disc("mint_antibody"), Buffer.from([kind]), subject, evidence]);
+    return new TransactionInstruction({
+      programId: REGISTRY_PROGRAM,
+      keys: [
+        { pubkey: publisher, isSigner: true, isWritable: true },
+        { pubkey: configPda(), isSigner: false, isWritable: true },
+        { pubkey: antibodyPda(kind, subject), isSigner: false, isWritable: true },
+        { pubkey: publisherAta, isSigner: false, isWritable: true },
+        { pubkey: stakeVault, isSigner: false, isWritable: true },
+        { pubkey: SPL_TOKEN, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+  }
