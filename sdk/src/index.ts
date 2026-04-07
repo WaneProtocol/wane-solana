@@ -150,3 +150,19 @@ export class Wane {
     const flagged = ab.status !== Status.Revoked;
     return { flagged, antibody: ab };
   }
+
+  /** Throw WaneBlockedError if the target is flagged. One-liner guard before signing. */
+  async assertSafe(target: PublicKey): Promise<void> {
+    const v = await this.checkAddress(target);
+    if (v.flagged) throw new WaneBlockedError(target);
+  }
+
+  /** Total antibodies known to the registry. */
+  async count(): Promise<bigint> {
+    const acc = await this.connection.getAccountInfo(configPda());
+    if (!acc) return 0n;
+    // RegistryConfig: 8 disc + 5 pubkeys(160) + antibody_count u64
+    return Buffer.from(acc.data).readBigUInt64LE(8 + 160);
+  }
+
+  // ---------- REPORT (mint an antibody so others are immune) ----------
