@@ -191,3 +191,30 @@ export class Wane {
       data,
     });
   }
+
+  // ---------- SESSION WALLET (personal agents, enforced) ----------
+
+  /** Enroll: create the agent's policy + session vault. One-time. */
+  enrollIx(
+    owner: PublicKey,
+    opts: { blockKinds?: number; minCorrobs?: number; perTxCap?: bigint; dailyCap?: bigint; expiresAt?: bigint } = {},
+  ): TransactionInstruction {
+    const data = Buffer.concat([
+      disc("enroll"),
+      Buffer.from([opts.blockKinds ?? 1]),
+      u32(opts.minCorrobs ?? 0),
+      u64(opts.perTxCap ?? 0n),
+      u64(opts.dailyCap ?? 0n),
+      i64(opts.expiresAt ?? 0n),
+    ]);
+    return new TransactionInstruction({
+      programId: VAULT_PROGRAM,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: policyPda(owner), isSigner: false, isWritable: true },
+        { pubkey: vaultPda(owner), isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+  }
