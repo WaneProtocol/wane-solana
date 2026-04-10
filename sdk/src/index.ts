@@ -218,3 +218,41 @@ export class Wane {
       data,
     });
   }
+
+  /** Deposit native SOL into the session vault. */
+  depositIx(owner: PublicKey, lamports: bigint): TransactionInstruction {
+    return new TransactionInstruction({
+      programId: VAULT_PROGRAM,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: vaultPda(owner), isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.concat([disc("deposit"), u64(lamports)]),
+    });
+  }
+
+  /**
+   * Screened send from the session vault. The destination's Address antibody PDA
+   * is ALWAYS attached at its derived address (whether or not it exists on-chain):
+   * the program binds this account to `destination` by seeds, so a flagged send
+   * cannot be slipped through by omitting or swapping it. The program reverts
+   * before any lamport moves if the destination carries an enforceable antibody.
+   */
+  sendIx(owner: PublicKey, destination: PublicKey, lamports: bigint): TransactionInstruction {
+    const ab = antibodyPda(ThreatKind.Address, subjectOf(destination));
+    return new TransactionInstruction({
+      programId: VAULT_PROGRAM,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: policyPda(owner), isSigner: false, isWritable: true },
+        { pubkey: vaultPda(owner), isSigner: false, isWritable: true },
+        { pubkey: destination, isSigner: false, isWritable: true },
+        { pubkey: configPda(), isSigner: false, isWritable: false },
+        { pubkey: ab, isSigner: false, isWritable: false }, // bound to destination by seeds
+        { pubkey: REGISTRY_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.concat([disc("wane_execute"), u64(lamports)]),
+    });
+  }
