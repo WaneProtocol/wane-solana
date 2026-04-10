@@ -256,3 +256,18 @@ export class Wane {
       data: Buffer.concat([disc("wane_execute"), u64(lamports)]),
     });
   }
+
+  /** Owner: withdraw native SOL from the vault back to yourself. Unscreened, so
+   *  your funds can never be trapped by the screen. */
+  withdrawIx(owner: PublicKey, lamports: bigint): TransactionInstruction {
+    return new TransactionInstruction({
+      programId: VAULT_PROGRAM,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: policyPda(owner), isSigner: false, isWritable: true },
+        { pubkey: vaultPda(owner), isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.concat([disc("withdraw"), u64(lamports)]),
+    });
+  }
