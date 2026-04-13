@@ -293,3 +293,21 @@ export class Wane {
       ]),
     });
   }
+
+  /** Convenience: build, sign, send a screened transfer. Throws if the program reverts. */
+  async send(owner: Signer, destination: PublicKey, lamports: bigint): Promise<string> {
+    const ix = this.sendIx(owner.publicKey, destination, lamports);
+    return this.submit([ix], owner, [owner]);
+  }
+
+  async submit(ixs: TransactionInstruction[], payer: Signer, signers: Signer[]): Promise<string> {
+    const tx = new Transaction().add(...ixs);
+    const { blockhash } = await this.connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = payer.publicKey;
+    tx.sign(...signers);
+    return this.connection.sendRawTransaction(tx.serialize());
+  }
+}
+
+export { Keypair, PublicKey, Connection };
