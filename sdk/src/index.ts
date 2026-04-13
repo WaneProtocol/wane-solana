@@ -271,3 +271,25 @@ export class Wane {
       data: Buffer.concat([disc("withdraw"), u64(lamports)]),
     });
   }
+
+  /** Owner: adjust policy params (caps, expiry, blocked kinds, min corrobs). */
+  updatePolicyIx(
+    owner: PublicKey,
+    opts: { blockKinds?: number; minCorrobs?: number; perTxCap?: bigint; dailyCap?: bigint; expiresAt?: bigint } = {},
+  ): TransactionInstruction {
+    return new TransactionInstruction({
+      programId: VAULT_PROGRAM,
+      keys: [
+        { pubkey: owner, isSigner: true, isWritable: true },
+        { pubkey: policyPda(owner), isSigner: false, isWritable: true },
+      ],
+      data: Buffer.concat([
+        disc("update_policy"),
+        Buffer.from([opts.blockKinds ?? 1]),
+        u32(opts.minCorrobs ?? 0),
+        u64(opts.perTxCap ?? 0n),
+        u64(opts.dailyCap ?? 0n),
+        i64(opts.expiresAt ?? 0n),
+      ]),
+    });
+  }
