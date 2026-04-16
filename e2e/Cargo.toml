@@ -1,0 +1,18 @@
+[package]
+name = "wane_e2e"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+litesvm = "0.6"
+litesvm-token = "0.6"
+solana-sdk = "2"
+spl-token = "7"
+spl-associated-token-account = "6"
+anchor-lang = "0.31.1"
+
+[[bin]]
+name = "wane_e2e"
+path = "src/main.rs"
+
+[workspace]
