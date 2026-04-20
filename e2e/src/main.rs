@@ -51,3 +51,45 @@ fn main() {
     // identical across sBPF versions; only the on-chain deploy gate differs.
     svm.add_program(reg, &std::fs::read("../target/sbf-test/wane_registry.so").unwrap());
     svm.add_program(vault_pid, &std::fs::read("../target/sbf-test/wane_vault.so").unwrap());
+
+    let gov = Keypair::new();
+    let gov2 = Keypair::new();
+    let owner = Keypair::new();
+    let publisher = Keypair::new();
+    let challenger = Keypair::new();
+    for k in [&gov, &gov2, &owner, &publisher, &challenger] {
+        svm.airdrop(&k.pubkey(), 1000 * LAMPORTS_PER_SOL).unwrap();
+    }
+
+    // ---------- 0. $WANE SPL mint, gov is mint authority ----------
+    let wane_mint = CreateMint::new(&mut svm, &gov).decimals(9).send().unwrap();
+    println!("[0] $WANE SPL mint: {}", wane_mint);
+
+    let (cfg, _) = Pubkey::find_program_address(&[b"config"], &reg);
+    let stake_vault = get_associated_token_address(&cfg, &wane_mint);
+    CreateAssociatedTokenAccount::new(&mut svm, &gov, &wane_mint).owner(&cfg).send().unwrap();
+    let pub_ata = CreateAssociatedTokenAccount::new(&mut svm, &publisher, &wane_mint).send().unwrap();
+    let chal_ata = CreateAssociatedTokenAccount::new(&mut svm, &challenger, &wane_mint).send().unwrap();
+    MintTo::new(&mut svm, &gov, &wane_mint, &pub_ata, 1000 * WANE).send().unwrap();
+    MintTo::new(&mut svm, &gov, &wane_mint, &chal_ata, 1000 * WANE).send().unwrap();
+
+    // ---------- 1. registry init_config (real mint + stake vault) ----------
+    let mut data = disc("init_config").to_vec();
+    data.extend_from_slice(gov.pubkey().as_ref());
+    data.extend_from_slice(&(100 * WANE).to_le_bytes());
+    data.extend_from_slice(&(200 * WANE).to_le_bytes());
+    data.extend_from_slice(&259200i64.to_le_bytes());
+    data.extend_from_slice(&3600i64.to_le_bytes());
+    data.extend_from_slice(&2u32.to_le_bytes());
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(gov.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new_readonly(wane_mint, false),
+            AccountMeta::new_readonly(stake_vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &gov).expect("init_config");
+    println!("[1] registry init_config OK (real $WANE stake vault)");
