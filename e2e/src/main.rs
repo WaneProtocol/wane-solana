@@ -93,3 +93,22 @@ fn main() {
         data,
     }, &gov).expect("init_config");
     println!("[1] registry init_config OK (real $WANE stake vault)");
+
+    // ---------- 2. genesis antibody for a drainer (kind 0) ----------
+    let drainer = Pubkey::new_unique();
+    let subject = drainer.to_bytes();
+    let antibody_bad = antibody_pda(&reg, KIND_ADDRESS, &subject);
+    let mut data = disc("seed_genesis").to_vec();
+    data.push(KIND_ADDRESS);
+    data.extend_from_slice(&subject);
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(gov.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new(antibody_bad, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &gov).expect("seed_genesis");
+    println!("[2] genesis antibody seeded (drainer, kind 0)");
