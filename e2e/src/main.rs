@@ -112,3 +112,29 @@ fn main() {
         data,
     }, &gov).expect("seed_genesis");
     println!("[2] genesis antibody seeded (drainer, kind 0)");
+
+    // ---------- 3. STAKED mint_antibody (publisher stakes 100 WANE) ----------
+    let badguy = Pubkey::new_unique();
+    let subj2 = badguy.to_bytes();
+    let antibody_staked = antibody_pda(&reg, KIND_ADDRESS, &subj2);
+    let bal_before = token_bal(&svm, &pub_ata);
+    let mut data = disc("mint_antibody").to_vec();
+    data.push(KIND_ADDRESS);
+    data.extend_from_slice(&subj2);
+    data.extend_from_slice(&[0u8; 32]);
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(publisher.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new(antibody_staked, false),
+            AccountMeta::new(pub_ata, false),
+            AccountMeta::new(stake_vault, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &publisher).expect("mint_antibody");
+    check!(bal_before - token_bal(&svm, &pub_ata) == 100 * WANE, "publisher stakes 100 WANE");
+    check!(token_bal(&svm, &stake_vault) == 100 * WANE, "vault holds 100 WANE");
+    println!("[3] STAKED mint_antibody OK");
