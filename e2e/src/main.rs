@@ -138,3 +138,19 @@ fn main() {
     check!(bal_before - token_bal(&svm, &pub_ata) == 100 * WANE, "publisher stakes 100 WANE");
     check!(token_bal(&svm, &stake_vault) == 100 * WANE, "vault holds 100 WANE");
     println!("[3] STAKED mint_antibody OK");
+
+    // ---------- 4. challenge (200 WANE bond) ----------
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(challenger.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new(antibody_staked, false),
+            AccountMeta::new(chal_ata, false),
+            AccountMeta::new(stake_vault, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+        ],
+        data: disc("challenge").to_vec(),
+    }, &challenger).expect("challenge");
+    check!(token_bal(&svm, &stake_vault) == 300 * WANE, "vault=300");
+    println!("[4] challenge OK (vault=300)");
