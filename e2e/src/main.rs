@@ -154,3 +154,58 @@ fn main() {
     }, &challenger).expect("challenge");
     check!(token_bal(&svm, &stake_vault) == 300 * WANE, "vault=300");
     println!("[4] challenge OK (vault=300)");
+
+    // ---------- 5. resolve(false_positive) -> slash publisher, pay challenger ----------
+    let (pub_earned, _) = Pubkey::find_program_address(&[b"earned", publisher.pubkey().as_ref()], &reg);
+    let chal_before = token_bal(&svm, &chal_ata);
+    let mut data = disc("resolve").to_vec();
+    data.push(1u8);
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(gov.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new_readonly(cfg, false),
+            AccountMeta::new(antibody_staked, false),
+            AccountMeta::new(stake_vault, false),
+            AccountMeta::new(chal_ata, false),
+            AccountMeta::new(pub_earned, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &gov).expect("resolve");
+    check!(token_bal(&svm, &chal_ata) - chal_before == 300 * WANE, "challenger gets 300 (slash)");
+    println!("[5] resolve(false_positive) OK: slash paid challenger 300");
+
+    // ---------- 6. vault enroll + deposit 10 SOL ----------
+    let (policy, _) = Pubkey::find_program_address(&[b"policy", owner.pubkey().as_ref()], &vault_pid);
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", owner.pubkey().as_ref()], &vault_pid);
+    let mut data = disc("enroll").to_vec();
+    data.push(1u8); // block_kinds = K_ADDRESS
+    data.extend_from_slice(&0u32.to_le_bytes()); // min_corrobs
+    data.extend_from_slice(&(5 * LAMPORTS_PER_SOL).to_le_bytes()); // per_tx_cap 5
+    data.extend_from_slice(&0u64.to_le_bytes()); // daily_cap
+    data.extend_from_slice(&0i64.to_le_bytes()); // expires
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(policy, false),
+            AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &owner).expect("enroll");
+    let mut data = disc("deposit").to_vec();
+    data.extend_from_slice(&(10 * LAMPORTS_PER_SOL).to_le_bytes());
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &owner).expect("deposit");
+    println!("[6] vault enroll + deposit 10 SOL OK");
