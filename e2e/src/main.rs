@@ -276,3 +276,24 @@ fn main() {
     check!(vbal_before - svm.get_balance(&vault).unwrap() == 2 * LAMPORTS_PER_SOL, "vault down 2 SOL");
     check!(svm.get_balance(&owner.pubkey()).unwrap() > obal_before, "owner got SOL back");
     println!("[12] withdraw OK (2 SOL back to owner, funds never trapped)");
+
+    // ---------- 13. update_config: governor changes enforce_corrobs 2 -> 5 ----------
+    let mut data = disc("update_config").to_vec();
+    data.extend_from_slice(gov.pubkey().as_ref());
+    data.extend_from_slice(&(100 * WANE).to_le_bytes());
+    data.extend_from_slice(&(200 * WANE).to_le_bytes());
+    data.extend_from_slice(&259200i64.to_le_bytes());
+    data.extend_from_slice(&3600i64.to_le_bytes());
+    data.extend_from_slice(&5u32.to_le_bytes()); // enforce_corrobs 5
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![
+            AccountMeta::new(gov.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new_readonly(wane_mint, false),
+            AccountMeta::new_readonly(stake_vault, false),
+        ],
+        data,
+    }, &gov).expect("update_config");
+    check!(config_u32(&svm, &cfg, 216) == 5, "enforce_corrobs updated to 5");
+    println!("[13] update_config OK (enforce_corrobs 2->5)");
