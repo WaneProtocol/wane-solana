@@ -209,3 +209,32 @@ fn main() {
         data,
     }, &owner).expect("deposit");
     println!("[6] vault enroll + deposit 10 SOL OK");
+
+    // ---------- 7. CLEAN send -> PASS ----------
+    let clean = Pubkey::new_unique();
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean, cfg, None, LAMPORTS_PER_SOL).is_ok(), "clean must pass");
+    check!(svm.get_balance(&clean).unwrap() == LAMPORTS_PER_SOL, "clean received");
+    println!("[7] CLEAN send PASSED");
+
+    // ---------- 8. FLAGGED send -> BLOCK (correct antibody bound to drainer) ----------
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, drainer, cfg, None, LAMPORTS_PER_SOL).is_err(), "flagged MUST block");
+    check!(svm.get_balance(&drainer).unwrap_or(0) == 0, "drainer got nothing");
+    println!("[8] FLAGGED send BLOCKED");
+
+    // ---------- 9. per-tx cap -> BLOCK (6 > 5) ----------
+    let clean2 = Pubkey::new_unique();
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean2, cfg, None, 6 * LAMPORTS_PER_SOL).is_err(), "over cap MUST block");
+    check!(svm.get_balance(&clean2).unwrap_or(0) == 0, "over-cap dest got nothing");
+    println!("[9] per-tx cap BLOCKED (6 > 5)");
+
+    // ---------- 10. BYPASS ATTEMPT: flagged drainer + WRONG antibody account ----------
+    // Attacker tries to dodge the screen by passing a clean address's antibody PDA
+    // (or any non-matching account) instead of drainer's. The seeds binding must
+    // reject it: the send fails, drainer still receives nothing. THIS is the core
+    // security property of the hardened vault.
+    let wrong_subject = Pubkey::new_unique().to_bytes();
+    let wrong_antibody = antibody_pda(&reg, KIND_ADDRESS, &wrong_subject);
+    let r = exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, drainer, cfg, Some(wrong_antibody), LAMPORTS_PER_SOL);
+    check!(r.is_err(), "BYPASS with wrong antibody MUST be rejected by seeds binding");
+    check!(svm.get_balance(&drainer).unwrap_or(0) == 0, "bypass moved no value to drainer");
+    println!("[10] BYPASS attempt REJECTED (antibody PDA is bound to destination)");
