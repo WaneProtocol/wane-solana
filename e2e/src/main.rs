@@ -238,3 +238,41 @@ fn main() {
     check!(r.is_err(), "BYPASS with wrong antibody MUST be rejected by seeds binding");
     check!(svm.get_balance(&drainer).unwrap_or(0) == 0, "bypass moved no value to drainer");
     println!("[10] BYPASS attempt REJECTED (antibody PDA is bound to destination)");
+
+    // ---------- 11. update_policy: raise per_tx_cap to 10, then 6 SOL PASS ----------
+    let mut data = disc("update_policy").to_vec();
+    data.push(1u8);
+    data.extend_from_slice(&0u32.to_le_bytes());
+    data.extend_from_slice(&(10 * LAMPORTS_PER_SOL).to_le_bytes()); // per_tx_cap 10
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(&0i64.to_le_bytes());
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(policy, false),
+        ],
+        data,
+    }, &owner).expect("update_policy");
+    let clean3 = Pubkey::new_unique();
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean3, cfg, None, 6 * LAMPORTS_PER_SOL).is_ok(), "6 SOL must pass after cap raise");
+    println!("[11] update_policy OK (cap 5->10, 6 SOL now passes)");
+
+    // ---------- 12. withdraw: owner pulls 2 SOL back from vault ----------
+    let vbal_before = svm.get_balance(&vault).unwrap();
+    let obal_before = svm.get_balance(&owner.pubkey()).unwrap();
+    let mut data = disc("withdraw").to_vec();
+    data.extend_from_slice(&(2 * LAMPORTS_PER_SOL).to_le_bytes());
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(policy, false),
+            AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &owner).expect("withdraw");
+    check!(vbal_before - svm.get_balance(&vault).unwrap() == 2 * LAMPORTS_PER_SOL, "vault down 2 SOL");
+    check!(svm.get_balance(&owner.pubkey()).unwrap() > obal_before, "owner got SOL back");
+    println!("[12] withdraw OK (2 SOL back to owner, funds never trapped)");
