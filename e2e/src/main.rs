@@ -297,3 +297,17 @@ fn main() {
     }, &gov).expect("update_config");
     check!(config_u32(&svm, &cfg, 216) == 5, "enforce_corrobs updated to 5");
     println!("[13] update_config OK (enforce_corrobs 2->5)");
+
+    // ---------- 14. registry pause: pause blocks new mint, unpause restores ----------
+    set_paused_reg(&mut svm, &reg, cfg, &gov, true);
+    let newbad = Pubkey::new_unique().to_bytes();
+    let ab_n = antibody_pda(&reg, KIND_ADDRESS, &newbad);
+    let r = mint_ix(&mut svm, &reg, cfg, &publisher, ab_n, pub_ata, stake_vault, &newbad);
+    check!(r.is_err(), "mint while paused MUST fail");
+    set_paused_reg(&mut svm, &reg, cfg, &gov, false);
+    // fresh blockhash: the retried mint is otherwise byte-identical to the paused
+    // attempt (same signer/accounts/data) and litesvm would dedup the signature.
+    svm.expire_blockhash();
+    let r = mint_ix(&mut svm, &reg, cfg, &publisher, ab_n, pub_ata, stake_vault, &newbad);
+    check!(r.is_ok(), "mint after unpause must succeed");
+    println!("[14] registry pause/unpause OK (mint blocked while paused)");
