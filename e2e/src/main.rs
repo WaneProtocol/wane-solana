@@ -311,3 +311,30 @@ fn main() {
     let r = mint_ix(&mut svm, &reg, cfg, &publisher, ab_n, pub_ata, stake_vault, &newbad);
     check!(r.is_ok(), "mint after unpause must succeed");
     println!("[14] registry pause/unpause OK (mint blocked while paused)");
+
+    // ---------- 15. 2-step governor transfer: gov -> gov2 ----------
+    let mut data = disc("nominate_governor").to_vec();
+    data.extend_from_slice(gov2.pubkey().as_ref());
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![AccountMeta::new(gov.pubkey(), true), AccountMeta::new(cfg, false)],
+        data,
+    }, &gov).expect("nominate");
+    send(&mut svm, Instruction {
+        program_id: reg,
+        accounts: vec![AccountMeta::new(gov2.pubkey(), true), AccountMeta::new(cfg, false)],
+        data: disc("accept_governor").to_vec(),
+    }, &gov2).expect("accept");
+    check!(config_pubkey(&svm, &cfg, 8) == gov2.pubkey(), "governor is now gov2");
+    // old gov can no longer pause
+    check!(set_paused_reg_try(&mut svm, &reg, cfg, &gov, true).is_err(), "old governor must be powerless");
+    println!("[15] 2-step governor transfer OK (gov2 in control, old gov powerless)");
+
+    println!("\nHARDENED E2E PASSED: stake/challenge/slash, screen-block, cap-block, BYPASS-rejected, update_policy/config, withdraw, pause, governor-transfer all verified.");
+}
+
+// ---------------- helpers ----------------
+
+fn antibody_pda(reg: &Pubkey, kind: u8, subject: &[u8; 32]) -> Pubkey {
+    Pubkey::find_program_address(&[b"antibody", &[kind], subject.as_ref()], reg).0
+}
