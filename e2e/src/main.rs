@@ -338,3 +338,31 @@ fn main() {
 fn antibody_pda(reg: &Pubkey, kind: u8, subject: &[u8; 32]) -> Pubkey {
     Pubkey::find_program_address(&[b"antibody", &[kind], subject.as_ref()], reg).0
 }
+
+fn token_bal(svm: &LiteSVM, ata: &Pubkey) -> u64 {
+    let acc = svm.get_account(ata).unwrap();
+    u64::from_le_bytes(acc.data[64..72].try_into().unwrap())
+}
+
+fn config_u32(svm: &LiteSVM, cfg: &Pubkey, off: usize) -> u32 {
+    let acc = svm.get_account(cfg).unwrap();
+    u32::from_le_bytes(acc.data[off..off + 4].try_into().unwrap())
+}
+fn config_pubkey(svm: &LiteSVM, cfg: &Pubkey, off: usize) -> Pubkey {
+    let acc = svm.get_account(cfg).unwrap();
+    Pubkey::new_from_array(acc.data[off..off + 32].try_into().unwrap())
+}
+
+fn set_paused_reg(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, gov: &Keypair, paused: bool) {
+    set_paused_reg_try(svm, reg, cfg, gov, paused).expect("set_registry_paused");
+}
+fn set_paused_reg_try(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, gov: &Keypair, paused: bool)
+    -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    let mut data = disc("set_registry_paused").to_vec();
+    data.push(paused as u8);
+    send(svm, Instruction {
+        program_id: *reg,
+        accounts: vec![AccountMeta::new_readonly(gov.pubkey(), true), AccountMeta::new(cfg, false)],
+        data,
+    }, gov)
+}
