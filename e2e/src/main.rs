@@ -366,3 +366,26 @@ fn set_paused_reg_try(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, gov: &Keypai
         data,
     }, gov)
 }
+
+#[allow(clippy::too_many_arguments)]
+fn mint_ix(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, publisher: &Keypair,
+    antibody: Pubkey, pub_ata: Pubkey, stake_vault: Pubkey, subject: &[u8; 32])
+    -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    let mut data = disc("mint_antibody").to_vec();
+    data.push(KIND_ADDRESS);
+    data.extend_from_slice(subject);
+    data.extend_from_slice(&[0u8; 32]);
+    send(svm, Instruction {
+        program_id: *reg,
+        accounts: vec![
+            AccountMeta::new(publisher.pubkey(), true),
+            AccountMeta::new(cfg, false),
+            AccountMeta::new(antibody, false),
+            AccountMeta::new(pub_ata, false),
+            AccountMeta::new(stake_vault, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, publisher)
+}
