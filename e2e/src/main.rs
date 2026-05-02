@@ -389,3 +389,39 @@ fn mint_ix(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, publisher: &Keypair,
         data,
     }, publisher)
 }
+
+#[allow(clippy::too_many_arguments)]
+fn exec(
+    svm: &mut LiteSVM, reg: &Pubkey, vault_pid: &Pubkey, owner: &Keypair,
+    policy: Pubkey, vault: Pubkey, destination: Pubkey, registry_config: Pubkey,
+    antibody_override: Option<Pubkey>, amount: u64,
+) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    // Default: the correctly-bound antibody PDA for (Address, destination).
+    // Override is used only by the bypass test to pass a non-matching account.
+    let subject = destination.to_bytes();
+    let antibody = antibody_override.unwrap_or_else(|| antibody_pda(reg, KIND_ADDRESS, &subject));
+    let mut data = disc("wane_execute").to_vec();
+    data.extend_from_slice(&amount.to_le_bytes());
+    let accounts = vec![
+        AccountMeta::new(owner.pubkey(), true),
+        AccountMeta::new(policy, false),
+        AccountMeta::new(vault, false),
+        AccountMeta::new(destination, false),
+        AccountMeta::new_readonly(registry_config, false),
+        AccountMeta::new_readonly(antibody, false),
+        AccountMeta::new_readonly(*reg, false),
+        AccountMeta::new_readonly(system_program::ID, false),
+    ];
+    let bh = svm.latest_blockhash();
+    let tx = Transaction::new_signed_with_payer(
+        &[Instruction { program_id: *vault_pid, accounts, data }],
+        Some(&owner.pubkey()), &[owner], bh,
+    );
+    svm.send_transaction(tx).map(|_| ())
+}
+
+fn send(svm: &mut LiteSVM, ix: Instruction, payer: &Keypair) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+    let bh = svm.latest_blockhash();
+    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[payer], bh);
+    svm.send_transaction(tx).map(|_| ())
+}
