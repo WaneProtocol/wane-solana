@@ -37,3 +37,21 @@ const u32 = (n: number) => {
   b.writeUInt32LE(n);
   return b;
 };
+
+function assert(cond: boolean, msg: string) {
+  if (!cond) {
+    console.error("ASSERT FAILED:", msg);
+    process.exit(1);
+  }
+}
+
+async function main() {
+  const ctx = await start(
+    [
+      { name: "wane_registry", programId: REGISTRY_ID },
+      { name: "wane_vault", programId: VAULT_ID },
+    ],
+    [],
+  );
+  const client = ctx.banksClient;
+  const gov = ctx.payer;
