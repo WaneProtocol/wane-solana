@@ -55,3 +55,45 @@ async function main() {
   );
   const client = ctx.banksClient;
   const gov = ctx.payer;
+
+  const owner = Keypair.generate();
+  // fund owner from gov
+  await sendTx(
+    client,
+    [SystemProgram.transfer({ fromPubkey: gov.publicKey, toPubkey: owner.publicKey, lamports: 50 * LAMPORTS_PER_SOL })],
+    gov,
+    [gov],
+  );
+
+  // ---------- 1. registry init_config ----------
+  const [cfg] = PublicKey.findProgramAddressSync([Buffer.from("config")], REGISTRY_ID);
+  const fakeMint = Keypair.generate().publicKey;
+  const fakeVault = Keypair.generate().publicKey;
+  const initData = Buffer.concat([
+    disc("init_config"),
+    gov.publicKey.toBuffer(), // treasury
+    u64(100), // mint_stake
+    u64(200), // challenge_stake
+    i64(259200), // maturity
+    i64(3600), // enforce_window
+    u32(2), // enforce_corrobs
+  ]);
+  await sendTx(
+    client,
+    [
+      new TransactionInstruction({
+        programId: REGISTRY_ID,
+        keys: [
+          { pubkey: gov.publicKey, isSigner: true, isWritable: true },
+          { pubkey: cfg, isSigner: false, isWritable: true },
+          { pubkey: fakeMint, isSigner: false, isWritable: false },
+          { pubkey: fakeVault, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: initData,
+      }),
+    ],
+    gov,
+    [gov],
+  );
+  console.log("[1] registry init_config OK");
