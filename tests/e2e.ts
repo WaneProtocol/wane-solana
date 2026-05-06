@@ -97,3 +97,31 @@ async function main() {
     [gov],
   );
   console.log("[1] registry init_config OK");
+
+  // ---------- 2. seed genesis antibody for a known-bad destination ----------
+  const drainer = Keypair.generate().publicKey;
+  const kind = 1; // Address
+  const subject = drainer.toBuffer(); // 32 bytes
+  const [antibodyBad] = PublicKey.findProgramAddressSync(
+    [Buffer.from("antibody"), Buffer.from([kind]), subject],
+    REGISTRY_ID,
+  );
+  const seedData = Buffer.concat([disc("seed_genesis"), Buffer.from([kind]), subject]);
+  await sendTx(
+    client,
+    [
+      new TransactionInstruction({
+        programId: REGISTRY_ID,
+        keys: [
+          { pubkey: gov.publicKey, isSigner: true, isWritable: true },
+          { pubkey: cfg, isSigner: false, isWritable: true },
+          { pubkey: antibodyBad, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: seedData,
+      }),
+    ],
+    gov,
+    [gov],
+  );
+  console.log(`[2] genesis antibody seeded for drainer ${drainer.toBase58()}`);
