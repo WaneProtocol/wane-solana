@@ -125,3 +125,39 @@ async function main() {
     [gov],
   );
   console.log(`[2] genesis antibody seeded for drainer ${drainer.toBase58()}`);
+
+  // ---------- 3. vault enroll ----------
+  const [policy] = PublicKey.findProgramAddressSync(
+    [Buffer.from("policy"), owner.publicKey.toBuffer()],
+    VAULT_ID,
+  );
+  const [vault] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vault"), owner.publicKey.toBuffer()],
+    VAULT_ID,
+  );
+  const enrollData = Buffer.concat([
+    disc("enroll"),
+    Buffer.from([1]), // block_kinds K_ADDRESS
+    u32(0), // min_corrobs
+    u64(5 * LAMPORTS_PER_SOL), // per_tx_cap
+    u64(0), // daily_cap
+    i64(0), // expires_at
+  ]);
+  await sendTx(
+    client,
+    [
+      new TransactionInstruction({
+        programId: VAULT_ID,
+        keys: [
+          { pubkey: owner.publicKey, isSigner: true, isWritable: true },
+          { pubkey: policy, isSigner: false, isWritable: true },
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: enrollData,
+      }),
+    ],
+    owner,
+    [owner],
+  );
+  console.log("[3] vault enroll OK");
