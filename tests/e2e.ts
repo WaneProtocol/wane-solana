@@ -161,3 +161,24 @@ async function main() {
     [owner],
   );
   console.log("[3] vault enroll OK");
+
+  // ---------- 4. deposit 10 SOL ----------
+  const depData = Buffer.concat([disc("deposit"), u64(10 * LAMPORTS_PER_SOL)]);
+  await sendTx(
+    client,
+    [
+      new TransactionInstruction({
+        programId: VAULT_ID,
+        keys: [
+          { pubkey: owner.publicKey, isSigner: true, isWritable: true },
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: depData,
+      }),
+    ],
+    owner,
+    [owner],
+  );
+  const vbal = await client.getBalance(vault);
+  console.log(`[4] deposit OK, vault balance = ${Number(vbal) / LAMPORTS_PER_SOL} SOL`);
