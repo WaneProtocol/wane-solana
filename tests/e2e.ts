@@ -199,3 +199,37 @@ async function main() {
   const after = await client.getBalance(drainer).catch(() => 0n);
   assert(Number(before) === Number(after), "no value may move to a flagged target");
   console.log(`[6] FLAGGED send BLOCKED (drainer balance unchanged). reason: ${rFlag.err}`);
+
+  console.log("\nE2E PASSED: clean send works, flagged send reverts before value moves.");
+  process.exit(0);
+}
+
+async function tryExecute(
+  client: any,
+  owner: Keypair,
+  policy: PublicKey,
+  vault: PublicKey,
+  destination: PublicKey,
+  registryConfig: PublicKey,
+  antibody: PublicKey | null,
+  amount: number,
+): Promise<{ ok: boolean; err?: string }> {
+  const data = Buffer.concat([disc("wane_execute"), u64(amount)]);
+  const keys = [
+    { pubkey: owner.publicKey, isSigner: true, isWritable: true },
+    { pubkey: policy, isSigner: false, isWritable: true },
+    { pubkey: vault, isSigner: false, isWritable: true },
+    { pubkey: destination, isSigner: false, isWritable: true },
+    { pubkey: registryConfig, isSigner: false, isWritable: false },
+    // Option<Account>: present = pubkey, None = program id sentinel
+    { pubkey: antibody ?? VAULT_ID, isSigner: false, isWritable: false },
+    { pubkey: REGISTRY_ID, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  try {
+    await sendTx(client, [new TransactionInstruction({ programId: VAULT_ID, keys, data })], owner, [owner]);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, err: String(e?.message ?? e).split("\n")[0] };
+  }
+}
