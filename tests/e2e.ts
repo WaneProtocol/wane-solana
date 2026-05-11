@@ -182,3 +182,20 @@ async function main() {
   );
   const vbal = await client.getBalance(vault);
   console.log(`[4] deposit OK, vault balance = ${Number(vbal) / LAMPORTS_PER_SOL} SOL`);
+
+  // ---------- 5. CLEAN send -> PASS ----------
+  const cleanDest = Keypair.generate().publicKey;
+  const amt = 1 * LAMPORTS_PER_SOL;
+  const rClean = await tryExecute(client, owner, policy, vault, cleanDest, cfg, null, amt);
+  assert(rClean.ok, `clean send must pass: ${rClean.err}`);
+  const cleanBal = await client.getBalance(cleanDest);
+  assert(Number(cleanBal) === amt, `clean dest must receive ${amt}, got ${cleanBal}`);
+  console.log(`[5] CLEAN send PASSED, dest received ${Number(cleanBal) / LAMPORTS_PER_SOL} SOL`);
+
+  // ---------- 6. FLAGGED send -> BLOCK ----------
+  const before = await client.getBalance(drainer).catch(() => 0n);
+  const rFlag = await tryExecute(client, owner, policy, vault, drainer, cfg, antibodyBad, amt);
+  assert(!rFlag.ok, "flagged send MUST be blocked but it passed");
+  const after = await client.getBalance(drainer).catch(() => 0n);
+  assert(Number(before) === Number(after), "no value may move to a flagged target");
+  console.log(`[6] FLAGGED send BLOCKED (drainer balance unchanged). reason: ${rFlag.err}`);
