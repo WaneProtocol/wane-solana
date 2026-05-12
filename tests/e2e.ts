@@ -233,3 +233,18 @@ async function tryExecute(
     return { ok: false, err: String(e?.message ?? e).split("\n")[0] };
   }
 }
+
+async function sendTx(client: any, ixs: TransactionInstruction[], payer: Keypair, signers: Keypair[]) {
+  const tx = new Transaction();
+  tx.recentBlockhash = (await client.getLatestBlockhash())[0];
+  tx.feePayer = payer.publicKey;
+  ixs.forEach((ix) => tx.add(ix));
+  tx.sign(...signers);
+  const meta = await client.processTransaction(tx);
+  return meta;
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
