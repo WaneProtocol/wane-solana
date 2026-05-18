@@ -1,0 +1,16 @@
+﻿cff-version: 1.2.0
+title: Wane Network
+abstract: Cross-protocol immune signaling primitive for Solana. Sub-block cascade defense via signed CPI broadcast.
+type: software
+license: MIT
+url: https://github.com/WaneProtocol/wane-solana
+repository-code: https://github.com/WaneProtocol/wane-solana
+authors:
+  - name: Wane Labs
+    email: core@wane.network
+keywords:
+  - solana
+  - anchor
+  - defi
+  - security
+  - cascade-defense
