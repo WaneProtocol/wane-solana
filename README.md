@@ -30,3 +30,24 @@ flowchart LR
   P[reporter] -->|stake WANE| R
   C[challenger] -->|dispute| R
 ```
+
+The vault never holds custody of intent: the owner drives every send, the program can only block. The antibody account passed to the vault is bound by PDA seeds to the destination, so the screen cannot be skipped.
+
+## Programs
+
+| Program | ID (devnet and mainnet) |
+| --- | --- |
+| `wane_registry` | `5Arj4zbFs5GigEGUSUb9hKNMYaPLqv1XgJXUcnGJ1wJH` |
+| `wane_vault` | `5YK7gMzkjUvLaxfNisMdtjRK4UeAiJBCSonB3GgrtTYh` |
+
+### wane_registry
+
+The antibody registry. One antibody is one PDA keyed by `(kind, subject)`, so the PDA address itself is the dedup key. It carries a stake/corroborate/challenge/resolve economy denominated in the `$WANE` SPL token, plus protocol-owned genesis antibodies that enforce immediately. Governance is a two-step transfer, the economic params are updatable, and the registry can be paused.
+
+### wane_vault
+
+A non-custodial session-key smart account. Funds live in a program-owned vault PDA, the owner drives every send, and the program can only block, never divert. `wane_execute` screens each native-SOL outflow against the registry and the agent's own policy (per-tx cap, daily cap, expiry, kill switch) and reverts before any lamport moves if the destination is flagged.
+
+The screen cannot be bypassed: the destination's antibody account is bound by PDA seeds to the destination address, so a caller cannot omit it or swap in a clean address to slip a flagged send through. The owner can always `withdraw` their own funds, so deposits are never trapped.
+
+## SDK
