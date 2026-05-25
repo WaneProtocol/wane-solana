@@ -51,3 +51,28 @@ A non-custodial session-key smart account. Funds live in a program-owned vault P
 The screen cannot be bypassed: the destination's antibody account is bound by PDA seeds to the destination address, so a caller cannot omit it or swap in a clean address to slip a flagged send through. The owner can always `withdraw` their own funds, so deposits are never trapped.
 
 ## SDK
+
+`sdk/` is a dependency-light TypeScript client (`@solana/web3.js` only) covering both integration paths:
+
+- Bot developers: `check(target)` before signing and `report(threat)` on a hit. No custody, no migration, one call.
+- Personal agents: enroll a Wane session wallet, deposit, and route sends through `send`, which the program screens on-chain.
+
+```ts
+import { Wane } from "wane-solana";
+const wane = Wane.devnet();
+const v = await wane.checkAddress(target); // { flagged: true, antibody: {...} }
+```
+
+Instruction data is the 8-byte Anchor discriminator plus borsh, matching the deployed programs. `sdk/test/encoding.test.ts` verifies the discriminators and PDA derivations against the on-chain layout.
+
+## Build and test
+
+```bash
+git clone --recurse-submodules https://github.com/WaneProtocol/wane-solana
+cd wane-solana
+
+# programs (Anchor / cargo-build-sbf)
+anchor build
+
+# full e2e on a real SBF runtime (litesvm)
+cd e2e && cargo run
