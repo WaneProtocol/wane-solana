@@ -76,3 +76,29 @@ anchor build
 
 # full e2e on a real SBF runtime (litesvm)
 cd e2e && cargo run
+
+# SDK type check + encoding test
+cd sdk && npx tsc --noEmit && npx tsx test/encoding.test.ts
+```
+
+Build note: current devnet enables SBPFv3 only, while mainnet still takes SBPFv0/v1/v2. Build the `.so` with the matching `cargo-build-sbf --arch` for the target cluster.
+
+## Project structure
+
+```
+programs/wane_registry   init_config, mint_antibody, corroborate, seed_genesis, challenge, resolve, claim_rewards, update_config, governance
+programs/wane_vault      enroll, deposit, wane_execute, withdraw, update_policy, set_paused
+sdk                      TypeScript client (both personas)
+e2e                      litesvm end-to-end suite
+tests                    bankrun end-to-end (TypeScript)
+```
+
+## Links
+
+- Website: https://wane.network
+- X: https://x.com/wanedotnetwork
+- GitHub: https://github.com/WaneProtocol/wane-solana
+
+## License
+
+MIT
