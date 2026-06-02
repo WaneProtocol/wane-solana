@@ -1,0 +1,29 @@
+﻿{
+  "name": "Wane Engine",
+  "image": "mcr.microsoft.com/devcontainers/rust:1.78-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "rust-analyzer.cargo.allFeatures": true
+      }
+    }
+  },
+  "postCreateCommand": "cargo --version && rustc --version && node --version",
+  "remoteUser": "vscode"
+}
