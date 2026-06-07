@@ -1,0 +1,11 @@
+﻿blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://wane.network/docs
+    about: Read the docs before opening an issue
+  - name: Discussions
+    url: https://github.com/WaneProtocol/wane-solana/discussions
+    about: Open-ended questions, ideas, and feedback
+  - name: Security disclosure
+    url: https://github.com/WaneProtocol/wane-solana/security/policy
+    about: Report vulnerabilities privately
