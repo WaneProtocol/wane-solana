@@ -212,18 +212,18 @@ fn main() {
 
     // ---------- 7. CLEAN send -> PASS ----------
     let clean = Pubkey::new_unique();
-    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean, cfg, None, LAMPORTS_PER_SOL).is_ok(), "clean must pass");
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, owner.pubkey(), policy, vault, clean, cfg, None, LAMPORTS_PER_SOL).is_ok(), "clean must pass");
     check!(svm.get_balance(&clean).unwrap() == LAMPORTS_PER_SOL, "clean received");
     println!("[7] CLEAN send PASSED");
 
     // ---------- 8. FLAGGED send -> BLOCK (correct antibody bound to drainer) ----------
-    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, drainer, cfg, None, LAMPORTS_PER_SOL).is_err(), "flagged MUST block");
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, owner.pubkey(), policy, vault, drainer, cfg, None, LAMPORTS_PER_SOL).is_err(), "flagged MUST block");
     check!(svm.get_balance(&drainer).unwrap_or(0) == 0, "drainer got nothing");
     println!("[8] FLAGGED send BLOCKED");
 
     // ---------- 9. per-tx cap -> BLOCK (6 > 5) ----------
     let clean2 = Pubkey::new_unique();
-    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean2, cfg, None, 6 * LAMPORTS_PER_SOL).is_err(), "over cap MUST block");
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, owner.pubkey(), policy, vault, clean2, cfg, None, 6 * LAMPORTS_PER_SOL).is_err(), "over cap MUST block");
     check!(svm.get_balance(&clean2).unwrap_or(0) == 0, "over-cap dest got nothing");
     println!("[9] per-tx cap BLOCKED (6 > 5)");
 
@@ -234,7 +234,7 @@ fn main() {
     // security property of the hardened vault.
     let wrong_subject = Pubkey::new_unique().to_bytes();
     let wrong_antibody = antibody_pda(&reg, KIND_ADDRESS, &wrong_subject);
-    let r = exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, drainer, cfg, Some(wrong_antibody), LAMPORTS_PER_SOL);
+    let r = exec(&mut svm, &reg, &vault_pid, &owner, owner.pubkey(), policy, vault, drainer, cfg, Some(wrong_antibody), LAMPORTS_PER_SOL);
     check!(r.is_err(), "BYPASS with wrong antibody MUST be rejected by seeds binding");
     check!(svm.get_balance(&drainer).unwrap_or(0) == 0, "bypass moved no value to drainer");
     println!("[10] BYPASS attempt REJECTED (antibody PDA is bound to destination)");
@@ -255,7 +255,7 @@ fn main() {
         data,
     }, &owner).expect("update_policy");
     let clean3 = Pubkey::new_unique();
-    check!(exec(&mut svm, &reg, &vault_pid, &owner, policy, vault, clean3, cfg, None, 6 * LAMPORTS_PER_SOL).is_ok(), "6 SOL must pass after cap raise");
+    check!(exec(&mut svm, &reg, &vault_pid, &owner, owner.pubkey(), policy, vault, clean3, cfg, None, 6 * LAMPORTS_PER_SOL).is_ok(), "6 SOL must pass after cap raise");
     println!("[11] update_policy OK (cap 5->10, 6 SOL now passes)");
 
     // ---------- 12. withdraw: owner pulls 2 SOL back from vault ----------
@@ -276,6 +276,67 @@ fn main() {
     check!(vbal_before - svm.get_balance(&vault).unwrap() == 2 * LAMPORTS_PER_SOL, "vault down 2 SOL");
     check!(svm.get_balance(&owner.pubkey()).unwrap() > obal_before, "owner got SOL back");
     println!("[12] withdraw OK (2 SOL back to owner, funds never trapped)");
+
+    // ---------- 12b. SESSION KEY: scoped agent key (drive / screen / no-withdraw / revoke) ----------
+    // top the vault up so the session has headroom
+    let mut data = disc("deposit").to_vec();
+    data.extend_from_slice(&(5 * LAMPORTS_PER_SOL).to_le_bytes());
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &owner).expect("deposit2");
+
+    // owner authorizes a fresh session key (the agent never gets the owner key)
+    let session = Keypair::new();
+    svm.airdrop(&session.pubkey(), 2 * LAMPORTS_PER_SOL).unwrap(); // agent gas only
+    let mut data = disc("set_session").to_vec();
+    data.extend_from_slice(session.pubkey().as_ref());
+    data.extend_from_slice(&i64::MAX.to_le_bytes()); // expiry: far future
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(policy, false),
+        ],
+        data,
+    }, &owner).expect("set_session");
+
+    // (a) the session key can drive a clean screened send
+    let sdest = Pubkey::new_unique();
+    check!(exec(&mut svm, &reg, &vault_pid, &session, owner.pubkey(), policy, vault, sdest, cfg, None, LAMPORTS_PER_SOL).is_ok(), "session clean send must pass");
+    check!(svm.get_balance(&sdest).unwrap() == LAMPORTS_PER_SOL, "session dest received");
+    // (b) the screen still applies to the session key
+    check!(exec(&mut svm, &reg, &vault_pid, &session, owner.pubkey(), policy, vault, drainer, cfg, None, LAMPORTS_PER_SOL).is_err(), "session->drainer MUST block");
+    // (c) the session key can NEVER withdraw
+    let mut data = disc("withdraw").to_vec();
+    data.extend_from_slice(&LAMPORTS_PER_SOL.to_le_bytes());
+    check!(send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(session.pubkey(), true),
+            AccountMeta::new(policy, false),
+            AccountMeta::new(vault, false),
+            AccountMeta::new_readonly(system_program::ID, false),
+        ],
+        data,
+    }, &session).is_err(), "session withdraw MUST fail");
+    // (d) owner revokes -> session key is dead instantly
+    send(&mut svm, Instruction {
+        program_id: vault_pid,
+        accounts: vec![
+            AccountMeta::new(owner.pubkey(), true),
+            AccountMeta::new(policy, false),
+        ],
+        data: disc("revoke_session").to_vec(),
+    }, &owner).expect("revoke_session");
+    let sdest2 = Pubkey::new_unique();
+    check!(exec(&mut svm, &reg, &vault_pid, &session, owner.pubkey(), policy, vault, sdest2, cfg, None, LAMPORTS_PER_SOL).is_err(), "revoked session MUST block");
+    println!("[12b] SESSION KEY OK (drive PASS, drainer BLOCK, withdraw BLOCK, revoke BLOCK)");
 
     // ---------- 13. update_config: governor changes enforce_corrobs 2 -> 5 ----------
     let mut data = disc("update_config").to_vec();
@@ -392,18 +453,20 @@ fn mint_ix(svm: &mut LiteSVM, reg: &Pubkey, cfg: Pubkey, publisher: &Keypair,
 
 #[allow(clippy::too_many_arguments)]
 fn exec(
-    svm: &mut LiteSVM, reg: &Pubkey, vault_pid: &Pubkey, owner: &Keypair,
+    svm: &mut LiteSVM, reg: &Pubkey, vault_pid: &Pubkey, driver: &Keypair, owner_pubkey: Pubkey,
     policy: Pubkey, vault: Pubkey, destination: Pubkey, registry_config: Pubkey,
     antibody_override: Option<Pubkey>, amount: u64,
 ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-    // Default: the correctly-bound antibody PDA for (Address, destination).
-    // Override is used only by the bypass test to pass a non-matching account.
+    // `driver` is the signer: the owner OR an authorized session key. `owner_pubkey`
+    // is only for PDA derivation. Default antibody is the correctly-bound (Address,
+    // destination) PDA; override is used only by the bypass test.
     let subject = destination.to_bytes();
     let antibody = antibody_override.unwrap_or_else(|| antibody_pda(reg, KIND_ADDRESS, &subject));
     let mut data = disc("wane_execute").to_vec();
     data.extend_from_slice(&amount.to_le_bytes());
     let accounts = vec![
-        AccountMeta::new(owner.pubkey(), true),
+        AccountMeta::new(driver.pubkey(), true),
+        AccountMeta::new_readonly(owner_pubkey, false),
         AccountMeta::new(policy, false),
         AccountMeta::new(vault, false),
         AccountMeta::new(destination, false),
@@ -415,7 +478,7 @@ fn exec(
     let bh = svm.latest_blockhash();
     let tx = Transaction::new_signed_with_payer(
         &[Instruction { program_id: *vault_pid, accounts, data }],
-        Some(&owner.pubkey()), &[owner], bh,
+        Some(&driver.pubkey()), &[driver], bh,
     );
     svm.send_transaction(tx).map(|_| ())
 }

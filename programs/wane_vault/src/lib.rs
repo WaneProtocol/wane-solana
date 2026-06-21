@@ -5,13 +5,13 @@ use wane_registry::{Antibody, RegistryConfig};
 
 declare_id!("5YK7gMzkjUvLaxfNisMdtjRK4UeAiJBCSonB3GgrtTYh");
 
-// Wane vault: a non-custodial session-key smart account.
-// Funds live in a program-owned vault PDA, but only the owner can drive it and
-// the program can ONLY block, never divert: wane_execute screens every native-SOL
-// outflow against the shared antibody registry + the agent's own policy, and
-// reverts before any lamport moves. This is the Solana analog of the Base 7702
-// WaneDelegate (block-only, owner-driven), with the registry read done via CPI
-// account-load instead of an EVM view call.
+// Wane vault: a non-custodial smart account with a true session key.
+// Funds live in a program-owned vault PDA. The OWNER is a master key; the owner
+// can also grant an AGENT a scoped SESSION KEY (a separate signer, time-boxed)
+// that can ONLY drive screened wane_execute within the policy caps, and can
+// NEVER withdraw or change the policy. wane_execute screens every native-SOL
+// outflow against the shared antibody registry + the agent's policy and reverts
+// before any lamport moves. The registry read is a CPI account-load (no view).
 
 #[program]
 pub mod wane_vault {
@@ -31,6 +31,8 @@ pub mod wane_vault {
         p.spent_today = 0;
         p.day_start = Clock::get()?.unix_timestamp / 86400;
         p.expires_at = params.expires_at;
+        p.session_key = Pubkey::default();
+        p.session_expiry = 0;
         p.bump = ctx.bumps.policy;
         p.vault_bump = ctx.bumps.vault;
         Ok(())
@@ -52,12 +54,41 @@ pub mod wane_vault {
         Ok(())
     }
 
-    /// Screen + send native SOL from the vault to `destination`.
-    /// Reverts (before any value moves) if the destination is a flagged,
-    /// enforceable antibody, or if the policy caps/pause/expiry reject it.
+    /// Owner: grant or replace the scoped agent session key (key = default to
+    /// clear). The session key can drive screened sends within the policy caps
+    /// until `expiry` (unix secs; 0 = no session). It can never withdraw.
+    pub fn set_session(ctx: Context<OwnerOnly>, key: Pubkey, expiry: i64) -> Result<()> {
+        let p = &mut ctx.accounts.policy;
+        p.session_key = key;
+        p.session_expiry = expiry;
+        Ok(())
+    }
+
+    /// Owner: revoke the session key immediately.
+    pub fn revoke_session(ctx: Context<OwnerOnly>) -> Result<()> {
+        let p = &mut ctx.accounts.policy;
+        p.session_key = Pubkey::default();
+        p.session_expiry = 0;
+        Ok(())
+    }
+
+    /// Screen + send native SOL from the vault to `destination`. Driven by the
+    /// owner OR a live session key. Reverts (before any value moves) if the
+    /// destination is a flagged, enforceable antibody, or if the policy
+    /// caps/pause/expiry reject it.
     pub fn wane_execute(ctx: Context<WaneExecute>, amount: u64) -> Result<()> {
         let policy = &mut ctx.accounts.policy;
         let now = Clock::get()?.unix_timestamp;
+
+        // ---- driver auth: owner (master) or the live session key ----
+        let driver = ctx.accounts.driver.key();
+        if driver != policy.owner {
+            require!(
+                policy.session_key != Pubkey::default() && driver == policy.session_key,
+                VaultError::Unauthorized
+            );
+            require!(now < policy.session_expiry, VaultError::SessionExpired);
+        }
 
         // ---- policy gate (mirrors WanePolicy._evaluate order) ----
         require!(policy.enabled, VaultError::NotEnabled);
@@ -86,7 +117,7 @@ pub mod wane_vault {
             }
         }
 
-        // ---- caps ----
+        // ---- caps (apply to whoever drives, so they bound the session key too) ----
         if policy.per_tx_cap != 0 {
             require!(amount <= policy.per_tx_cap, VaultError::OverPerTx);
         }
@@ -138,6 +169,7 @@ pub mod wane_vault {
 
     /// Owner: withdraw native SOL from the vault back to themselves. Unscreened
     /// (returning your own funds is never a threat) so funds can never be trapped.
+    /// A session key can NEVER reach this (owner-only).
     pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
         let owner_key = ctx.accounts.policy.owner;
         let bump = ctx.accounts.policy.vault_bump;
@@ -179,11 +211,13 @@ pub struct AgentPolicy {
     pub spent_today: u64,
     pub day_start: i64,
     pub expires_at: i64,
+    pub session_key: Pubkey,
+    pub session_expiry: i64,
     pub bump: u8,
     pub vault_bump: u8,
 }
 impl AgentPolicy {
-    pub const LEN: usize = 32 + 32 + 1 + 1 + 1 + 4 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+    pub const LEN: usize = 32 + 32 + 1 + 1 + 1 + 4 + 8 + 8 + 8 + 8 + 8 + 32 + 8 + 1 + 1;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -229,8 +263,11 @@ pub struct Deposit<'info> {
 
 #[derive(Accounts)]
 pub struct WaneExecute<'info> {
-    #[account(mut, address = policy.owner)]
-    pub owner: Signer<'info>,
+    /// The authorizer: either the policy owner (master) or the live session key.
+    pub driver: Signer<'info>,
+    /// CHECK: the vault owner pubkey, used only for PDA derivation. Bound to the
+    /// policy via has_one; never a signer here.
+    pub owner: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [b"policy", owner.key().as_ref()],
@@ -294,4 +331,8 @@ pub enum VaultError {
     OverPerTx,
     #[msg("over daily cap")]
     OverDaily,
+    #[msg("caller is neither the owner nor the session key")]
+    Unauthorized,
+    #[msg("session key expired")]
+    SessionExpired,
 }
